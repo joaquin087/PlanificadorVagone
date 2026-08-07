@@ -1,0 +1,6 @@
+{
+  "name": "Gestión de Producción Fábrica",
+  "description": "Sistema integral de recetas, cálculo de lotes, insumos, ocupación de freezers y planificación de producción de alimentos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

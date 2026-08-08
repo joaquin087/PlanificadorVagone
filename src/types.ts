@@ -81,6 +81,7 @@ export interface ActiveBatch {
   notes?: string;
   freezerAssigned?: 'F1' | 'F2' | 'AMBOS' | 'NINGUNO';
   calculatedHours: number;
+  calculatedLaborPercent?: number;
   calculatedF1Percent: number;
   calculatedF2Percent: number;
 }

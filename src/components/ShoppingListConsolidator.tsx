@@ -30,7 +30,10 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<boolean>(false);
 
-  const consolidated = consolidateBatches(activeBatches, recipes);
+  const plannedBatches = activeBatches.filter((b) => b.status === 'planificado');
+  const completedBatchesCount = activeBatches.filter((b) => b.status === 'completado').length;
+
+  const consolidated = consolidateBatches(plannedBatches, recipes);
 
   const toggleCheck = (id: string) => {
     setCheckedItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -108,7 +111,8 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
             <h1 className="text-xl font-bold text-slate-900">Lista Consolidada de Compras & Proveedores</h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Suma todos los insumos de los {activeBatches.length} lotes activos planificados para emitir órdenes de compra sin faltantes.
+            Calcula los insumos para los <strong>{plannedBatches.length} lotes planificados</strong>.
+            {completedBatchesCount > 0 && ` (${completedBatchesCount} lote(s) completado(s) ya fueron descontados de la lista).`}
           </p>
         </div>
 

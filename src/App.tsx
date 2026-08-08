@@ -24,6 +24,9 @@ import {
   KitchenWeighingGuide 
 } from './components/KitchenWeighingGuide';
 import { 
+  ProductionCalendar 
+} from './components/ProductionCalendar';
+import { 
   INITIAL_RECIPES 
 } from './data/recipesData';
 import { 
@@ -34,6 +37,10 @@ import {
   scaleRecipe 
 } from './utils/calculations';
 import { 
+  getMondayOfWeek, 
+  formatDateToISO 
+} from './utils/calendarHelpers';
+import { 
   FileSpreadsheet, 
   Clock, 
   Snowflake, 
@@ -41,13 +48,13 @@ import {
   Plus 
 } from 'lucide-react';
 
-const STORAGE_KEY_BATCHES = 'fabriplan_active_batches_v1';
+const STORAGE_KEY_BATCHES = 'fabriplan_active_batches_v2';
 
 export default function App() {
   const [recipes] = useState<Recipe[]>(INITIAL_RECIPES);
   const [currentTab, setCurrentTab] = useState<
-    'dashboard' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen'
-  >('dashboard');
+    'dashboard' | 'calendar' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen'
+  >('calendar');
 
   const [selectedRecipeDetail, setSelectedRecipeDetail] = useState<Recipe | null>(null);
   const [scalerInitialRecipeId, setScalerInitialRecipeId] = useState<string>('tequenos');
@@ -63,37 +70,90 @@ export default function App() {
     } catch (e) {
       console.error('Error loading batches from localStorage', e);
     }
-    // Default realistic planned batches
+    
+    // Default realistic planned batches distributed throughout the current week
+    const monday = getMondayOfWeek(new Date());
+    const getOffsetDateStr = (days: number) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + days);
+      return formatDateToISO(d);
+    };
+
     return [
       {
-        id: 'batch-1',
+        id: 'batch-mon',
         recipeId: 'tequenos',
         recipeName: 'Tequeños de Queso',
         targetUnits: 1100,
         selectedAlternativeIds: [],
-        scheduledDate: new Date().toISOString().split('T')[0],
+        scheduledDate: getOffsetDateStr(0), // Lunes
         status: 'en_freezer',
         createdAt: new Date().toISOString(),
         calculatedHours: 7.0,
         calculatedF1Percent: 100,
         calculatedF2Percent: 20,
         freezerAssigned: 'AMBOS',
-        notes: 'Lote estándar matutino. 10 bandejas en F1 y 2 en F2.',
+        notes: 'Producción al 100% (10 bandejas F1, 2 en F2)',
       },
       {
-        id: 'batch-2',
-        recipeId: 'chipa-comun',
-        recipeName: 'Chipa Común Tradicional',
-        targetUnits: 3000,
+        id: 'batch-tue',
+        recipeId: 'sorrentinos-jyq',
+        recipeName: 'Sorrentinos Jamón y Queso',
+        targetUnits: 1000,
         selectedAlternativeIds: [],
-        scheduledDate: new Date().toISOString().split('T')[0],
+        scheduledDate: getOffsetDateStr(1), // Martes
         status: 'pesando',
         createdAt: new Date().toISOString(),
         calculatedHours: 7.0,
         calculatedF1Percent: 100,
-        calculatedF2Percent: 25,
-        freezerAssigned: 'AMBOS',
-        notes: 'Preparar para embolsado de 250 paquetes de 12u.',
+        calculatedF2Percent: 0,
+        freezerAssigned: 'F1',
+        notes: 'Producción al 100% (10 bandejas completas)',
+      },
+      {
+        id: 'batch-wed',
+        recipeId: 'chipa-comun',
+        recipeName: 'Chipa Común Tradicional',
+        targetUnits: 2250,
+        selectedAlternativeIds: [],
+        scheduledDate: getOffsetDateStr(2), // Miércoles
+        status: 'planificado',
+        createdAt: new Date().toISOString(),
+        calculatedHours: 5.3,
+        calculatedF1Percent: 95,
+        calculatedF2Percent: 0,
+        freezerAssigned: 'F1',
+        notes: 'Producción al 75% (2.250 u para empaque de 187 paq)',
+      },
+      {
+        id: 'batch-thu',
+        recipeId: 'canelones-acelga-pollo',
+        recipeName: 'Canelones Acelga y Pollo',
+        targetUnits: 400,
+        selectedAlternativeIds: [],
+        scheduledDate: getOffsetDateStr(3), // Jueves
+        status: 'planificado',
+        createdAt: new Date().toISOString(),
+        calculatedHours: 6.0,
+        calculatedF1Percent: 80,
+        calculatedF2Percent: 0,
+        freezerAssigned: 'F1',
+        notes: 'Producción al 100% (100 cajas de 4 u)',
+      },
+      {
+        id: 'batch-fri',
+        recipeId: 'postre-chocotorta',
+        recipeName: 'Postre Chocotorta Individual',
+        targetUnits: 600,
+        selectedAlternativeIds: [],
+        scheduledDate: getOffsetDateStr(4), // Viernes
+        status: 'planificado',
+        createdAt: new Date().toISOString(),
+        calculatedHours: 4.0,
+        calculatedF1Percent: 70,
+        calculatedF2Percent: 0,
+        freezerAssigned: 'F1',
+        notes: 'Producción al 100% (600 potes individuales)',
       },
     ];
   });
@@ -187,7 +247,23 @@ export default function App() {
             onSelectRecipe={(r) => setSelectedRecipeDetail(r)}
             onQuickScale={handleQuickScale}
             onNavigateTab={(tab) => setCurrentTab(tab)}
-            onOpenNewBatchModal={() => setCurrentTab('planner')}
+            onOpenNewBatchModal={() => setCurrentTab('calendar')}
+          />
+        )}
+
+        {/* Tab 1.5: Production Calendar & Daily Ingredients */}
+        {currentTab === 'calendar' && (
+          <ProductionCalendar
+            recipes={recipes}
+            activeBatches={activeBatches}
+            onAddBatch={handleAddBatch}
+            onUpdateBatchStatus={handleUpdateBatchStatus}
+            onRemoveBatch={handleRemoveBatch}
+            onNavigateTab={(tab) => setCurrentTab(tab)}
+            onSelectBatchForKitchen={(b) => {
+              setSelectedBatchForKitchen(b);
+              setCurrentTab('kitchen');
+            }}
           />
         )}
 

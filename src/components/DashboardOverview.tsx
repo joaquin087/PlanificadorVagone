@@ -25,7 +25,7 @@ interface DashboardOverviewProps {
   f2Percent: number;
   onSelectRecipe: (recipe: Recipe) => void;
   onQuickScale: (recipe: Recipe) => void;
-  onNavigateTab: (tab: 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen') => void;
+  onNavigateTab: (tab: 'calendar' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen') => void;
   onOpenNewBatchModal: () => void;
 }
 
@@ -69,18 +69,18 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             {/* CTA buttons */}
             <div className="flex flex-wrap items-center gap-3">
               <button
+                onClick={() => onNavigateTab('calendar')}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-amber-500/20 active:scale-95"
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Calendario Diario & Insumos</span>
+              </button>
+              <button
                 onClick={() => onNavigateTab('scaler')}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 font-medium text-sm transition-all shadow-sm active:scale-95"
               >
                 <Scale className="w-4 h-4 text-amber-400" />
                 <span>Calculadora Rápida</span>
-              </button>
-              <button
-                onClick={onOpenNewBatchModal}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-amber-500/20 active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Planificar Nuevo Lote</span>
               </button>
             </div>
           </div>

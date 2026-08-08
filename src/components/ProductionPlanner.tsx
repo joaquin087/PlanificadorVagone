@@ -77,13 +77,10 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
 
   const totalHours = activeBatches.reduce((acc, b) => acc + (b.calculatedHours || 0), 0);
 
-  // Status mapping
+  // Status mapping - Only 'planificado' and 'completado'
   const statuses: { id: ActiveBatch['status']; label: string; color: string }[] = [
-    { id: 'planificado', label: '1. Planificado', color: 'bg-slate-100 text-slate-700 border-slate-300' },
-    { id: 'pesando', label: '2. Pesando', color: 'bg-amber-100 text-amber-900 border-amber-300' },
-    { id: 'elaborando', label: '3. Elaborando', color: 'bg-orange-100 text-orange-900 border-orange-300' },
-    { id: 'en_freezer', label: '4. En Freezer', color: 'bg-cyan-100 text-cyan-900 border-cyan-300' },
-    { id: 'completado', label: '5. Completado', color: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
+    { id: 'planificado', label: 'Planificado', color: 'bg-slate-100 text-slate-700 border-slate-300' },
+    { id: 'completado', label: 'Completado', color: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
   ];
 
   return (

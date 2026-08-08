@@ -14,8 +14,8 @@ import {
 import { ActiveBatch } from '../types';
 
 interface NavbarProps {
-  currentTab: 'dashboard' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen';
-  setCurrentTab: (tab: 'dashboard' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen') => void;
+  currentTab: 'dashboard' | 'calendar' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen';
+  setCurrentTab: (tab: 'dashboard' | 'calendar' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen') => void;
   activeBatches: ActiveBatch[];
   f1Percent: number;
   f2Percent: number;
@@ -147,6 +147,25 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Layers className="w-4 h-4" />
             Panel General
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('calendar')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
+              currentTab === 'calendar'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4 text-amber-400" />
+            <span>Calendario Diario & Insumos</span>
+            {activeBatches.length > 0 && (
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                currentTab === 'calendar' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-300'
+              }`}>
+                {activeBatches.length}
+              </span>
+            )}
           </button>
 
           <button

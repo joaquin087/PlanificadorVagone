@@ -10,6 +10,21 @@ export interface ScaledPackaging extends PackagingItem {
   scaledCount: number;
 }
 
+export interface ProductionTimeSpec {
+  baseHours: number; // e.g. 7.5
+  baseMinutes: number; // base duration in minutes (e.g. 450 min)
+  prepMinutes: number; // optional fixed setup/mise-en-place time (e.g. 30 min)
+  variableMinutes: number; // baseMinutes - prepMinutes
+  baseYieldUnits: number; // e.g. 112 bandejas, 400 potes, 1100 tequeños, 3000 chipas, 176 docenas
+  yieldUnitName: string; // e.g. 'bandejas', 'porciones', 'chipas', 'docenas', 'tequeños'
+  minutesPerUnit: number; // Exact minutes per 1 unit produced
+  secondsPerUnit: number; // Exact seconds per 1 unit produced
+  rateFormatted: string; // e.g. "~4.0 min por bandeja", "~1.1 min por pote", "~23 seg por tequeño"
+  formattedDuration: string; // e.g. "7h 30 min"
+  workdayPercent: number; // (baseMinutes / 480) * 100
+  timeNotes?: string;
+}
+
 export interface ScaledRecipeResult {
   recipe: Recipe;
   targetYield: number;
@@ -18,8 +33,12 @@ export interface ScaledRecipeResult {
   ingredients: ScaledIngredient[];
   packaging: ScaledPackaging[];
   estimatedHours: number;
+  estimatedMinutes: number;
+  formattedDuration: string;
+  timeSpec: ProductionTimeSpec;
   freezer: {
     singleFreezerPercent: number;
+    totalFreezerOccupancyPercent: number; // % of total plant 2-freezer capacity (e.g. 50% = 1 freezer, 100% = 2 freezers)
     f1Percent: number;
     f1Trays: number;
     f1MaxTrays: number;
@@ -33,6 +52,136 @@ export interface ScaledRecipeResult {
     overCapacityMessage?: string;
   };
   warnings: string[];
+}
+
+/**
+ * Format total minutes into human-readable Spanish time string:
+ * e.g., 161 min -> "2h 41 min", 112 min -> "1h 52 min", 420 min -> "7h", 35 min -> "35 min"
+ */
+export function formatDuration(totalMinutes: number): string {
+  const roundedMin = Math.round(totalMinutes);
+  if (roundedMin <= 0) return '0 min';
+  const hours = Math.floor(roundedMin / 60);
+  const mins = roundedMin % 60;
+  if (hours === 0) {
+    return `${mins} min`;
+  }
+  if (mins === 0) {
+    return `${hours}h`;
+  }
+  return `${hours}h ${mins} min`;
+}
+
+/**
+ * Format floating-point hours (e.g., 2.68, 1.88, 7.0) to readable duration string:
+ * e.g., 2.68 -> "2h 41 min", 2.7 -> "2h 42 min", 1.875 -> "1h 52 min"
+ */
+export function formatHoursToDuration(hours: number): string {
+  if (!hours || isNaN(hours) || hours <= 0) return '0 min';
+  return formatDuration(Math.round(hours * 60));
+}
+
+/**
+ * Returns exact production time rules and standard rates for a recipe:
+ * - Canelones: 450 min (7.5h) for 112 bandejas -> 4.02 min / bandeja
+ * - Postres (Tiramisú, Cheesecake, Chocotorta): 450 min (7.5h) for 400 potes -> 1.125 min / pote
+ * - Tequeños: 420 min (7.0h) for 1.100 tequeños -> 0.382 min (23 seg) / tequeño
+ * - Chipa Tradicional & Salame: 420 min (7.0h) for 3.000 chipas -> 0.14 min (8.4 seg) / chipa
+ * - Pastas (Sorrentinos JyQ, Raviolones): 420 min (7.0h) for 176 docenas -> 2.386 min / docena
+ * - Sorrentinos Caprese: 240 min (4.0h) for 80 docenas -> 3.0 min / docena
+ */
+export function getProductionTimeSpec(recipe: Recipe): ProductionTimeSpec {
+  // Base minutes: Prioritize explicit baseMinutes, otherwise convert baseHours to minutes
+  let baseMinutes = 420;
+  if (typeof recipe.baseMinutes === 'number' && recipe.baseMinutes > 0) {
+    baseMinutes = Math.round(recipe.baseMinutes);
+  } else if (typeof recipe.baseHours === 'number' && recipe.baseHours > 0) {
+    baseMinutes = Math.round(recipe.baseHours * 60);
+  }
+
+  const baseHours = Math.round((baseMinutes / 60) * 100) / 100;
+  const prepMinutes = Math.max(0, Math.min(baseMinutes - 1, recipe.prepMinutes || 0));
+  const variableMinutes = Math.max(0, baseMinutes - prepMinutes);
+
+  const baseYieldUnits = Math.max(1, recipe.baseYieldUnits || 1);
+  const minutesPerUnit = baseMinutes / baseYieldUnits;
+  const secondsPerUnit = (baseMinutes * 60) / baseYieldUnits;
+
+  let unitNameSingular = recipe.yieldUnitName || 'unidad';
+  if (unitNameSingular.endsWith('es')) {
+    unitNameSingular = unitNameSingular.slice(0, -2);
+  } else if (unitNameSingular.endsWith('s')) {
+    unitNameSingular = unitNameSingular.slice(0, -1);
+  }
+
+  let rateFormatted = '';
+  if (minutesPerUnit >= 1) {
+    rateFormatted = `~${minutesPerUnit.toFixed(1)} min por ${unitNameSingular}`;
+  } else {
+    rateFormatted = `~${Math.round(secondsPerUnit)} seg por ${unitNameSingular}`;
+  }
+
+  // Workday: Standard 8h shift = 480 minutes
+  const workdayPercent = Math.round((baseMinutes / 480) * 100);
+  const formattedDuration = formatDuration(baseMinutes);
+
+  return {
+    baseHours,
+    baseMinutes,
+    prepMinutes,
+    variableMinutes,
+    baseYieldUnits,
+    yieldUnitName: recipe.yieldUnitName || 'unidades',
+    minutesPerUnit: Number(minutesPerUnit.toFixed(3)),
+    secondsPerUnit: Number(secondsPerUnit.toFixed(1)),
+    rateFormatted,
+    formattedDuration,
+    workdayPercent,
+    timeNotes: recipe.timeNotes,
+  };
+}
+
+/**
+ * Calculates accurate production time proportional to the target units produced:
+ * If a recipe has a fixed prep/setup time (prepMinutes), it uses the two-tier formula:
+ *   estimatedMinutes = prepMinutes + targetUnits * ((baseMinutes - prepMinutes) / baseYieldUnits)
+ * Otherwise, it uses pure proportional scaling:
+ *   estimatedMinutes = targetUnits * (baseMinutes / baseYieldUnits)
+ *
+ * e.g., 40 bandejas of canelones = 40 * (450 min / 112) = 160.7 min = 2h 41 min (~2.7 hs)
+ * e.g., 100 potes de tiramisú = 100 * (450 min / 400) = 112.5 min = 1h 52 min (~1.9 hs)
+ */
+export function calculateBatchTime(recipe: Recipe, targetUnits: number): {
+  estimatedMinutes: number;
+  estimatedHours: number;
+  formattedDuration: string;
+  laborPercentOfShift: number;
+  ratio: number;
+  spec: ProductionTimeSpec;
+} {
+  const spec = getProductionTimeSpec(recipe);
+  const ratio = Math.max(0.001, targetUnits / spec.baseYieldUnits);
+
+  let estimatedMinutes = 0;
+  if (spec.prepMinutes > 0) {
+    const varMinPerUnit = (spec.baseMinutes - spec.prepMinutes) / spec.baseYieldUnits;
+    estimatedMinutes = Math.round(spec.prepMinutes + (targetUnits * varMinPerUnit));
+  } else {
+    estimatedMinutes = Math.round(targetUnits * (spec.baseMinutes / spec.baseYieldUnits));
+  }
+
+  const estimatedHours = Math.round((estimatedMinutes / 60) * 100) / 100;
+  const formattedDuration = formatDuration(estimatedMinutes);
+  const laborPercentOfShift = Math.round((estimatedMinutes / 480) * 100);
+
+  return {
+    estimatedMinutes,
+    estimatedHours,
+    formattedDuration,
+    laborPercentOfShift,
+    ratio,
+    spec,
+  };
 }
 
 /**
@@ -50,13 +199,13 @@ export function getFreezerCapacitySpec(recipe: Recipe): {
   isDirectPotes: boolean;
   trayDescription: string;
 } {
-  if (recipe.category === 'pastas') {
+  if (recipe.category === 'pastas' || recipe.yieldUnitName === 'docenas') {
     return {
-      unitsPerFreezer: 1056, // 44 paquetes de 24u = 1.056 unidades
-      unitLabel: 'paquetes (1.056 u)',
+      unitsPerFreezer: 88, // 88 docenas por freezer (11 bandejas x 8 docenas)
+      unitLabel: 'docenas',
       maxTraysPerFreezer: 11,
       isDirectPotes: false,
-      trayDescription: '11 bandejas pasantes de congelado (4 paquetes / 96 u c/u)',
+      trayDescription: '11 bandejas pasantes (8 docenas c/u = 88 docenas máx por freezer)',
     };
   }
   if (recipe.category === 'tequenos' || recipe.id === 'tequenos') {
@@ -113,7 +262,15 @@ export function calculateBatchFreezerFraction(recipe: Recipe, targetUnits: numbe
   return targetUnits / spec.unitsPerFreezer;
 }
 
-export function formatGrams(grams: number, unit?: string): string {
+export function formatGrams(grams: number, unit?: string, ingredientName?: string): string {
+  if (ingredientName && ingredientName.toLowerCase().trim() === 'cebolla') {
+    const freshKg = (grams / 1000).toFixed(2);
+    const dehydratedGrams = grams / 10;
+    const dehyStr = dehydratedGrams >= 1000
+      ? `${(dehydratedGrams / 1000).toFixed(2)} kg`
+      : `${Math.round(dehydratedGrams)} g`;
+    return `${freshKg} kg fresca (o ${dehyStr} deshidratada)`;
+  }
   if (unit === 'u' || unit === 'paquetes') {
     return `${Math.round(grams)} ${unit}`;
   }
@@ -131,7 +288,15 @@ export function formatGrams(grams: number, unit?: string): string {
   return `${Math.round(grams).toLocaleString('es-AR')} g`;
 }
 
-export function formatSimpleKg(grams: number, unit?: string): string {
+export function formatSimpleKg(grams: number, unit?: string, ingredientName?: string): string {
+  if (ingredientName && ingredientName.toLowerCase().trim() === 'cebolla') {
+    const freshKg = (grams / 1000).toFixed(2);
+    const dehydratedGrams = grams / 10;
+    const dehyStr = dehydratedGrams >= 1000
+      ? `${(dehydratedGrams / 1000).toFixed(2)} kg`
+      : `${Math.round(dehydratedGrams)} g`;
+    return `${freshKg} kg fresca (o ${dehyStr} deshidratada)`;
+  }
   if (unit === 'u' || unit === 'paquetes') {
     return `${Math.round(grams)} ${unit}`;
   }
@@ -146,6 +311,7 @@ export function formatSimpleKg(grams: number, unit?: string): string {
   }
   return `${Math.round(grams)} g`;
 }
+
 
 export function scaleRecipe(
   recipe: Recipe,
@@ -187,16 +353,19 @@ export function scaleRecipe(
     };
   });
 
-  // Estimated hours: setup + assembly time scaled
-  const setupHours = recipe.baseHours * 0.2; // fixed setup
-  const variableHours = recipe.baseHours * 0.8 * ratio;
-  const estimatedHours = Math.round((setupHours + variableHours) * 10) / 10;
+  // Accurate Production Time Calculation (Rule-based rate per unit, fully proportional)
+  const timeCalc = calculateBatchTime(recipe, targetYield);
+  const estimatedHours = timeCalc.estimatedHours;
+  const estimatedMinutes = timeCalc.estimatedMinutes;
+  const formattedDuration = timeCalc.formattedDuration;
+  const timeSpec = timeCalc.spec;
   const laborPercent = Math.round(ratio * 100);
 
   // Freezer calculation using interchangeable single-freezer 100% reference
   const freezerSpec = getFreezerCapacitySpec(recipe);
   const singleFreezerFraction = targetYield / freezerSpec.unitsPerFreezer;
   const singleFreezerPercent = Math.round(singleFreezerFraction * 100);
+  const totalFreezerOccupancyPercent = Math.round((singleFreezerFraction / 2) * 100);
 
   let f1Percent = 0;
   let f2Percent = 0;
@@ -211,8 +380,8 @@ export function scaleRecipe(
     if (freezerSpec.maxTraysPerFreezer > 0) {
       f1Trays = Math.round(singleFreezerFraction * freezerSpec.maxTraysPerFreezer * 10) / 10;
     }
-    occupancySummary = `Ocupa ${singleFreezerPercent}% de 1 freezer (se puede ubicar en F1 o F2 indistintamente, dejando 1 freezer libre).`;
-  } else {
+    occupancySummary = `Ocupa ${totalFreezerOccupancyPercent}% de la capacidad total de freezers (${f1Percent}% de 1 freezer, dejando el 2do libre).`;
+  } else if (singleFreezerFraction <= 2.0) {
     // Requires both freezers
     f1Percent = 100;
     f2Percent = Math.round((singleFreezerFraction - 1.0) * 100);
@@ -220,7 +389,16 @@ export function scaleRecipe(
       f1Trays = freezerSpec.maxTraysPerFreezer;
       f2Trays = Math.round((singleFreezerFraction - 1.0) * freezerSpec.maxTraysPerFreezer * 10) / 10;
     }
-    occupancySummary = `Ocupa 1 freezer al 100% + ${f2Percent}% en el segundo freezer (${f1Percent + f2Percent}% total de frío).`;
+    occupancySummary = `Ocupa ${totalFreezerOccupancyPercent}% de la capacidad total de freezers (F1: 100% + F2: ${f2Percent}%).`;
+  } else {
+    // Over capacity
+    f1Percent = 100;
+    f2Percent = 100;
+    if (freezerSpec.maxTraysPerFreezer > 0) {
+      f1Trays = freezerSpec.maxTraysPerFreezer;
+      f2Trays = freezerSpec.maxTraysPerFreezer;
+    }
+    occupancySummary = `⚠️ Supera el 100% de la capacidad de los 2 freezers (${totalFreezerOccupancyPercent}% requerido).`;
   }
 
   const warnings: string[] = [];
@@ -229,7 +407,7 @@ export function scaleRecipe(
 
   if (singleFreezerFraction > 2.0) {
     isOverCapacity = true;
-    overCapacityMessage = `¡ATENCIÓN! La cantidad solicitada (${targetYield} ${recipe.yieldUnitName}) excede la capacidad total de los 2 freezers de la fábrica (${singleFreezerPercent}% de frío requerido). Se requiere fraccionar en múltiples tandas de producción.`;
+    overCapacityMessage = `¡ATENCIÓN! La cantidad solicitada (${targetYield} ${recipe.yieldUnitName}) excede la capacidad total de los 2 freezers de la fábrica (${totalFreezerOccupancyPercent}% de frío requerido). Se requiere fraccionar en múltiples tandas de producción.`;
     warnings.push(overCapacityMessage);
   }
 
@@ -253,12 +431,16 @@ export function scaleRecipe(
     ingredients: scaledIngredients,
     packaging: scaledPackaging,
     estimatedHours,
+    estimatedMinutes,
+    formattedDuration,
+    timeSpec,
     freezer: {
       singleFreezerPercent,
-      f1Percent: Math.min(200, f1Percent),
+      totalFreezerOccupancyPercent,
+      f1Percent: Math.min(100, f1Percent),
       f1Trays: Math.round(f1Trays * 10) / 10,
       f1MaxTrays: freezerSpec.maxTraysPerFreezer,
-      f2Percent: Math.min(200, f2Percent),
+      f2Percent: Math.min(100, f2Percent),
       f2Trays: Math.round(f2Trays * 10) / 10,
       f2MaxTrays: freezerSpec.maxTraysPerFreezer,
       isDirectPotes: freezerSpec.isDirectPotes,
@@ -304,8 +486,9 @@ export function consolidateBatches(
       totalFreezerFraction += calculateBatchFreezerFraction(recipe, batch.targetUnits);
     }
 
-    // Consolidate ingredients
+    // Consolidate ingredients (exclude water)
     scaled.ingredients.forEach((ing) => {
+      if (ing.name.toLowerCase().trim().startsWith('agua')) return;
       const key = `${ing.name.toLowerCase().trim()}_${ing.unit || 'g'}`;
       if (!ingredientMap.has(key)) {
         ingredientMap.set(key, {

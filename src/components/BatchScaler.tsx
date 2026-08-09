@@ -233,14 +233,16 @@ export const BatchScaler: React.FC<BatchScalerProps> = ({
           {/* Hours */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
             <div className="flex items-center justify-between text-xs text-slate-500">
-              <span className="font-medium">Tiempo Estimado</span>
+              <span className="font-semibold text-slate-700">Tiempo de Elaboración</span>
               <Clock className="w-4 h-4 text-amber-500" />
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-slate-900">{scaled.estimatedHours}</span>
-              <span className="text-xs text-slate-500">horas hombre</span>
+              <span className="text-2xl font-black text-slate-900">{scaled.formattedDuration}</span>
+              <span className="text-xs text-slate-500 font-bold">({scaled.estimatedHours} hs)</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">Escalado según volumen y preparación</p>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Ritmo: <strong>{scaled.timeSpec.rateFormatted}</strong>
+            </p>
           </div>
 
           {/* Freezer 1 */}

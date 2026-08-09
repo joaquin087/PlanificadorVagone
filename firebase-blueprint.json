@@ -1,0 +1,34 @@
+{
+  "entities": {
+    "batches": {
+      "title": "Batches",
+      "description": "Lotes de producción planificados y ejecutados en la fábrica",
+      "properties": {
+        "id": { "type": "string", "description": "ID único del lote" },
+        "recipeId": { "type": "string", "description": "ID de la receta" },
+        "recipeName": { "type": "string", "description": "Nombre del producto" },
+        "targetUnits": { "type": "number", "description": "Unidades objetivo planificadas" },
+        "scheduledDate": { "type": "string", "description": "Fecha agendada YYYY-MM-DD" },
+        "status": { "type": "string", "description": "Estado del lote: planificado, pesando, elaborando, en_freezer, completado" },
+        "createdAt": { "type": "string", "description": "Timestamp ISO de creación" },
+        "notes": { "type": "string", "description": "Notas operativas o turno" },
+        "calculatedHours": { "type": "number", "description": "Horas calculadas de labor" },
+        "calculatedF1Percent": { "type": "number", "description": "% de ocupación Freezer 1" },
+        "calculatedF2Percent": { "type": "number", "description": "% de ocupación Freezer 2" },
+        "freezerAssigned": { "type": "string", "description": "Freezer asignado (F1, F2, AMBOS, NINGUNO)" }
+      },
+      "required": ["id", "recipeId", "recipeName", "targetUnits", "scheduledDate", "status"]
+    },
+    "recipes": {
+      "title": "Recipes",
+      "description": "Fichas técnicas y recetas maestras editables de fábrica",
+      "properties": {
+        "id": { "type": "string", "description": "ID de la receta" },
+        "name": { "type": "string", "description": "Nombre de la receta" },
+        "category": { "type": "string", "description": "Categoría de producto" },
+        "baseYieldUnits": { "type": "number", "description": "Rendimiento base al 100%" }
+      },
+      "required": ["id", "name", "category", "baseYieldUnits"]
+    }
+  }
+}

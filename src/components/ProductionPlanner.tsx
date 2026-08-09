@@ -12,10 +12,11 @@ import {
   ShoppingCart, 
   FileSpreadsheet,
   ChevronRight,
-  Filter
+  Filter,
+  Activity
 } from 'lucide-react';
 import { Recipe, ActiveBatch } from '../types';
-import { scaleRecipe } from '../utils/calculations';
+import { scaleRecipe, formatHoursToDuration, calculateBatchTime, formatDuration } from '../utils/calculations';
 
 interface ProductionPlannerProps {
   recipes: Recipe[];
@@ -46,12 +47,15 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
   const [filterStatus, setFilterStatus] = useState<string>('todos');
 
   const selectedRecipe = recipes.find((r) => r.id === selectedRecipeId) || recipes[0];
+  const liveTimeCalculation = selectedRecipe ? calculateBatchTime(selectedRecipe, targetUnits) : null;
+  const liveScaled = selectedRecipe ? scaleRecipe(selectedRecipe, targetUnits) : null;
 
   const handleCreateBatch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRecipe) return;
 
     const scaled = scaleRecipe(selectedRecipe, targetUnits);
+    const timeSpec = calculateBatchTime(selectedRecipe, targetUnits);
 
     onAddBatch({
       recipeId: selectedRecipe.id,
@@ -60,7 +64,10 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
       scheduledDate,
       status: 'planificado',
       notes,
-      calculatedHours: scaled.estimatedHours,
+      calculatedHours: timeSpec.estimatedHours,
+      calculatedMinutes: timeSpec.estimatedMinutes,
+      calculatedFormattedDuration: timeSpec.formattedDuration,
+      calculatedLaborPercent: timeSpec.laborPercentOfShift,
       calculatedF1Percent: scaled.freezer.f1Percent,
       calculatedF2Percent: scaled.freezer.f2Percent,
       freezerAssigned: scaled.freezer.f2Percent > 0 ? 'AMBOS' : 'F1',
@@ -75,7 +82,12 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
     ? activeBatches
     : activeBatches.filter((b) => b.status === filterStatus);
 
-  const totalHours = activeBatches.reduce((acc, b) => acc + (b.calculatedHours || 0), 0);
+  const totalMinutes = activeBatches.reduce((acc, b) => {
+    if (b.calculatedMinutes) return acc + b.calculatedMinutes;
+    return acc + Math.round((b.calculatedHours || 0) * 60);
+  }, 0);
+
+  const totalHours = totalMinutes / 60;
 
   // Status mapping - Only 'planificado' and 'completado'
   const statuses: { id: ActiveBatch['status']; label: string; color: string }[] = [
@@ -131,8 +143,10 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <span className="text-xs text-slate-500 font-medium">Tiempo Total Estimado</span>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-amber-600">{totalHours.toFixed(1)}</span>
-            <span className="text-xs text-slate-400">horas hombre de trabajo</span>
+            <span className="text-2xl font-black text-amber-600">
+              {formatDuration(totalMinutes)}
+            </span>
+            <span className="text-xs text-slate-400 font-medium">({totalHours.toFixed(1)} hs totales)</span>
           </div>
         </div>
 
@@ -192,7 +206,8 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
         <div className="space-y-4">
           {filteredBatches.map((batch) => {
             const recipe = recipes.find((r) => r.id === batch.recipeId);
-            const scaled = recipe ? scaleRecipe(recipe, batch.targetUnits) : null;
+            const durationText = batch.calculatedFormattedDuration || 
+              (batch.calculatedMinutes ? formatDuration(batch.calculatedMinutes) : formatHoursToDuration(batch.calculatedHours));
 
             return (
               <div
@@ -208,9 +223,12 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
                     <span className="text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-0.5 rounded-full">
                       {batch.targetUnits.toLocaleString('es-AR')} {recipe?.yieldUnitName || 'unidades'}
                     </span>
-                    <span className="text-xs text-slate-400 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
-                      {batch.calculatedHours}h estimadas
+                    <span className="text-xs text-slate-700 font-bold bg-slate-100 px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-slate-200">
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      {durationText}
+                      {batch.calculatedHours && (
+                        <span className="text-slate-400 text-[11px] font-normal">({batch.calculatedHours} hs)</span>
+                      )}
                     </span>
                   </div>
 
@@ -312,6 +330,31 @@ export const ProductionPlanner: React.FC<ProductionPlannerProps> = ({
                   required
                 />
               </div>
+
+              {/* Live Preview Box */}
+              {liveTimeCalculation && liveScaled && (
+                <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-amber-900 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-amber-700" />
+                      Tiempo estimado:
+                    </span>
+                    <span className="font-black text-amber-950">
+                      {liveTimeCalculation.formattedDuration} ({liveTimeCalculation.estimatedMinutes} min / {liveTimeCalculation.estimatedHours} hs)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-amber-200/50">
+                    <span className="flex items-center gap-1">
+                      <Snowflake className="w-3.5 h-3.5 text-cyan-600" />
+                      Ocupación freezer:
+                    </span>
+                    <span className="font-bold text-slate-800">
+                      F1: {liveScaled.freezer.f1Percent}% {liveScaled.freezer.f2Percent > 0 ? `| F2: ${liveScaled.freezer.f2Percent}%` : ''}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Fecha de Turno / Elaboración:</label>

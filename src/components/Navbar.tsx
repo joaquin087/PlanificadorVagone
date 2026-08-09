@@ -1,25 +1,26 @@
 import React from 'react';
 import { 
   ChefHat, 
-  Layers, 
-  Calculator, 
   Snowflake, 
   CalendarDays, 
   ShoppingCart, 
-  Scale, 
-  AlertTriangle,
   FileSpreadsheet,
-  Plus
+  Plus,
+  Cloud,
+  CloudCheck
 } from 'lucide-react';
 import { ActiveBatch } from '../types';
 
+export type MainTabType = 'calendar' | 'recipes' | 'shopping';
+
 interface NavbarProps {
-  currentTab: 'dashboard' | 'calendar' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen';
-  setCurrentTab: (tab: 'dashboard' | 'calendar' | 'recipes' | 'scaler' | 'freezers' | 'planner' | 'shopping' | 'kitchen') => void;
+  currentTab: MainTabType;
+  setCurrentTab: (tab: MainTabType) => void;
   activeBatches: ActiveBatch[];
   f1Percent: number;
   f2Percent: number;
   onOpenQuickBatch: () => void;
+  isCloudSynced?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -29,56 +30,64 @@ export const Navbar: React.FC<NavbarProps> = ({
   f1Percent,
   f2Percent,
   onOpenQuickBatch,
+  isCloudSynced = true,
 }) => {
-  const isF1Full = f1Percent >= 100;
-  const isF2Full = f2Percent >= 100;
-  const hasFreezerAlert = isF1Full || isF2Full;
-
   return (
     <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md border-b border-slate-800">
       {/* Top industrial banner */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="w-[98%] mx-auto px-2 sm:px-4 lg:px-6">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Brand */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentTab('dashboard')}>
-            <div className="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center shadow-md shadow-amber-500/20">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentTab('calendar')}>
+            <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center shadow-md shadow-amber-500/20">
               <ChefHat className="w-6 h-6 text-slate-950" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg tracking-tight text-white">FABRI-PLAN</span>
+                <span className="font-extrabold text-lg tracking-tight text-white">Planificador Vagone</span>
                 <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Control de Planta
+                  Control de Producción
+                </span>
+                {/* Cloud Database Badge */}
+                <span 
+                  className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    isCloudSynced
+                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                      : 'bg-amber-950/60 border-amber-500/40 text-amber-300'
+                  }`}
+                  title="Toda la información se guarda y sincroniza en tiempo real en la nube (Firebase Firestore) para que accedas desde cualquier PC o celular."
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <Cloud className="w-3 h-3" />
+                  <span>Nube Conectada</span>
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Recetas, Insumos, Freezers F1/F2 y Lotes</p>
+              <p className="text-xs text-slate-400">Planificación Semanal, Recetas e Insumos Fábrica Vagone</p>
             </div>
           </div>
 
-          {/* Freezer Quick Status & Indicators */}
-          <div className="hidden md:flex items-center gap-4">
+          {/* Freezer Quick Status & Action Buttons */}
+          <div className="hidden md:flex items-center gap-3">
             {/* F1 meter */}
             <div 
-              onClick={() => setCurrentTab('freezers')}
-              className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg border text-xs cursor-pointer transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${
                 f1Percent > 100
-                  ? 'bg-red-950/60 border-red-500 text-red-300 shadow-sm shadow-red-500/20'
+                  ? 'bg-rose-950/60 border-rose-500 text-rose-300'
                   : f1Percent >= 90
                   ? 'bg-amber-950/50 border-amber-500 text-amber-300'
-                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:border-slate-600'
+                  : 'bg-slate-800/80 border-slate-700 text-slate-300'
               }`}
-              title="Click para ver detalle de Freezer 1"
             >
-              <Snowflake className={`w-4 h-4 ${f1Percent >= 90 ? 'text-amber-400 animate-pulse' : 'text-cyan-400'}`} />
+              <Snowflake className={`w-3.5 h-3.5 ${f1Percent >= 90 ? 'text-amber-400' : 'text-cyan-400'}`} />
               <div>
-                <div className="flex items-center gap-1.5 font-medium">
-                  <span>Freezer 1 (F1):</span>
+                <div className="flex items-center gap-1 text-[11px] font-semibold">
+                  <span>Freezer 1:</span>
                   <span className="font-bold text-white">{f1Percent}%</span>
                 </div>
-                <div className="w-20 bg-slate-700 h-1.5 rounded-full overflow-hidden mt-0.5">
+                <div className="w-16 bg-slate-700 h-1 rounded-full overflow-hidden mt-0.5">
                   <div 
                     className={`h-full rounded-full transition-all duration-500 ${
-                      f1Percent > 100 ? 'bg-red-500' : f1Percent >= 90 ? 'bg-amber-400' : 'bg-cyan-400'
+                      f1Percent > 100 ? 'bg-rose-500' : f1Percent >= 90 ? 'bg-amber-400' : 'bg-cyan-400'
                     }`}
                     style={{ width: `${Math.min(100, f1Percent)}%` }}
                   />
@@ -88,26 +97,24 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* F2 meter */}
             <div 
-              onClick={() => setCurrentTab('freezers')}
-              className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg border text-xs cursor-pointer transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${
                 f2Percent > 100
-                  ? 'bg-red-950/60 border-red-500 text-red-300 shadow-sm shadow-red-500/20'
+                  ? 'bg-rose-950/60 border-rose-500 text-rose-300'
                   : f2Percent >= 90
                   ? 'bg-amber-950/50 border-amber-500 text-amber-300'
-                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:border-slate-600'
+                  : 'bg-slate-800/80 border-slate-700 text-slate-300'
               }`}
-              title="Click para ver detalle de Freezer 2"
             >
-              <Snowflake className={`w-4 h-4 ${f2Percent >= 90 ? 'text-amber-400 animate-pulse' : 'text-blue-400'}`} />
+              <Snowflake className={`w-3.5 h-3.5 ${f2Percent >= 90 ? 'text-amber-400' : 'text-blue-400'}`} />
               <div>
-                <div className="flex items-center gap-1.5 font-medium">
-                  <span>Freezer 2 (F2):</span>
+                <div className="flex items-center gap-1 text-[11px] font-semibold">
+                  <span>Freezer 2:</span>
                   <span className="font-bold text-white">{f2Percent}%</span>
                 </div>
-                <div className="w-20 bg-slate-700 h-1.5 rounded-full overflow-hidden mt-0.5">
+                <div className="w-16 bg-slate-700 h-1 rounded-full overflow-hidden mt-0.5">
                   <div 
                     className={`h-full rounded-full transition-all duration-500 ${
-                      f2Percent > 100 ? 'bg-red-500' : f2Percent >= 90 ? 'bg-amber-400' : 'bg-blue-400'
+                      f2Percent > 100 ? 'bg-rose-500' : f2Percent >= 90 ? 'bg-amber-400' : 'bg-blue-400'
                     }`}
                     style={{ width: `${Math.min(100, f2Percent)}%` }}
                   />
@@ -115,19 +122,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* Active Batches Button */}
+            {/* Active Batches Indicator */}
             <button
-              onClick={() => setCurrentTab('planner')}
-              className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition-colors"
+              onClick={() => setCurrentTab('calendar')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition-colors"
             >
-              <CalendarDays className="w-4 h-4 text-emerald-400" />
-              <span>{activeBatches.length} {activeBatches.length === 1 ? 'Lote activo' : 'Lotes activos'}</span>
+              <CalendarDays className="w-3.5 h-3.5 text-amber-400" />
+              <span>{activeBatches.length} {activeBatches.length === 1 ? 'Lote' : 'Lotes'}</span>
             </button>
 
             {/* New Batch Quick Action */}
             <button
               onClick={onOpenQuickBatch}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs transition-all shadow-md hover:shadow-amber-500/20 active:scale-95"
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow-md active:scale-95"
             >
               <Plus className="w-4 h-4" />
               <span>Nuevo Lote</span>
@@ -135,32 +142,20 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex space-x-1 overflow-x-auto py-2 border-t border-slate-800/80 scrollbar-thin">
-          <button
-            onClick={() => setCurrentTab('dashboard')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
-              currentTab === 'dashboard'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            Panel General
-          </button>
-
+        {/* Clean Navigation Tabs */}
+        <div className="flex space-x-1 py-1.5 border-t border-slate-800/80">
           <button
             onClick={() => setCurrentTab('calendar')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               currentTab === 'calendar'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
                 : 'text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
           >
-            <CalendarDays className="w-4 h-4 text-amber-400" />
-            <span>Calendario Diario & Insumos</span>
+            <CalendarDays className="w-4 h-4" />
+            <span>Calendario de Planificación</span>
             {activeBatches.length > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                 currentTab === 'calendar' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-300'
               }`}>
                 {activeBatches.length}
@@ -170,82 +165,26 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <button
             onClick={() => setCurrentTab('recipes')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               currentTab === 'recipes'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
                 : 'text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
           >
             <FileSpreadsheet className="w-4 h-4" />
-            Recetas y Fichas (10)
-          </button>
-
-          <button
-            onClick={() => setCurrentTab('scaler')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
-              currentTab === 'scaler'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Calculator className="w-4 h-4" />
-            Calculadora / Escalador
-          </button>
-
-          <button
-            onClick={() => setCurrentTab('freezers')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
-              currentTab === 'freezers'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Snowflake className="w-4 h-4" />
-            Monitor Freezers (F1 & F2)
-            {hasFreezerAlert && (
-              <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
-            )}
-          </button>
-
-          <button
-            onClick={() => setCurrentTab('planner')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
-              currentTab === 'planner'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <CalendarDays className="w-4 h-4" />
-            Plan de Producción
-            {activeBatches.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-slate-700 text-[10px] font-bold text-white">
-                {activeBatches.length}
-              </span>
-            )}
+            <span>Recetas y Fichas Técnicas</span>
           </button>
 
           <button
             onClick={() => setCurrentTab('shopping')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               currentTab === 'shopping'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
                 : 'text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
           >
             <ShoppingCart className="w-4 h-4" />
-            Lista de Compras / Insumos
-          </button>
-
-          <button
-            onClick={() => setCurrentTab('kitchen')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-all ${
-              currentTab === 'kitchen'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Scale className="w-4 h-4" />
-            Guía de Pesaje (Operarios)
+            <span>Lista de Compras / Insumos</span>
           </button>
         </div>
       </div>

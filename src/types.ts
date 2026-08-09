@@ -57,7 +57,9 @@ export interface Recipe {
   presentationOptions: PresentationOption[];
   ingredients: Ingredient[];
   packaging: PackagingItem[];
-  baseHours: number; // e.g. 7
+  baseHours: number; // e.g. 7.5
+  baseMinutes?: number; // e.g. 450 (base production duration in minutes)
+  prepMinutes?: number; // optional fixed setup/prep time in minutes (e.g. 30)
   timeNotes?: string;
   freezerRule: FreezerOccupancyRule;
   maxRecommendedBatch?: number;
@@ -81,6 +83,8 @@ export interface ActiveBatch {
   notes?: string;
   freezerAssigned?: 'F1' | 'F2' | 'AMBOS' | 'NINGUNO';
   calculatedHours: number;
+  calculatedMinutes?: number;
+  calculatedFormattedDuration?: string;
   calculatedLaborPercent?: number;
   calculatedF1Percent: number;
   calculatedF2Percent: number;

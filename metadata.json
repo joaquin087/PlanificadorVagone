@@ -1,6 +1,6 @@
 {
-  "name": "Gestión de Producción Fábrica",
-  "description": "Sistema integral de recetas, cálculo de lotes, insumos, ocupación de freezers y planificación de producción de alimentos.",
+  "name": "Planificador Vagone",
+  "description": "Planificador de producción de alimentos y pastas Vagone: cálculo de lotes, insumos, ocupación de freezers y calendario semanal.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

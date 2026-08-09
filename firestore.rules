@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permitir lectura y escritura de lotes y recetas para sincronización multi-dispositivo en la planta
+    match /batches/{batchId} {
+      allow read, write: if true;
+    }
+    match /recipes/{recipeId} {
+      allow read, write: if true;
+    }
+    match /app_state/{docId} {
+      allow read, write: if true;
+    }
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

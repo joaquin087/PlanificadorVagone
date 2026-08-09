@@ -25,10 +25,12 @@ import {
   CalendarRange,
   ArrowRight,
   Printer,
-  ChevronDown
+  ChevronDown,
+  Package,
+  X
 } from 'lucide-react';
 import { Recipe, ActiveBatch, ConsolidatedIngredient, ConsolidatedPackaging } from '../types';
-import { scaleRecipe, formatGrams, formatSimpleKg } from '../utils/calculations';
+import { scaleRecipe, formatGrams, formatSimpleKg, formatDuration, formatHoursToDuration } from '../utils/calculations';
 import { 
   getMondayOfWeek, 
   getWeekDays, 
@@ -61,12 +63,14 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
 }) => {
   // Calendar State
   const [currentMonday, setCurrentMonday] = useState<Date>(() => getMondayOfWeek(new Date()));
-  const [includeSaturday, setIncludeSaturday] = useState<boolean>(() => {
+  
+  // Weekly Saturday Toggle State: per-week dictionary (e.g. { "2026-08-03": true })
+  const [enabledSaturdayWeeks, setEnabledSaturdayWeeks] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('fabriplan_include_saturday');
-      return saved ? JSON.parse(saved) : false;
+      const saved = localStorage.getItem('vagone_saturday_weeks');
+      return saved ? JSON.parse(saved) : {};
     } catch {
-      return false;
+      return {};
     }
   });
 
@@ -100,21 +104,63 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   // Monthly summary navigation
   const [monthlyDate, setMonthlyDate] = useState<Date>(() => new Date());
 
-  // Save Saturday preference
-  const handleToggleSaturday = () => {
-    const next = !includeSaturday;
-    setIncludeSaturday(next);
+  // Week Key for current Monday
+  const currentWeekKey = useMemo(() => formatDateToISO(currentMonday), [currentMonday]);
+
+  // Saturday calculation for current week
+  const saturdayInfo = useMemo(() => {
+    const satDate = new Date(currentMonday);
+    satDate.setDate(currentMonday.getDate() + 5);
+    const dateStr = formatDateToISO(satDate);
+    const dayNumber = satDate.getDate();
+    const monthNameFull = MONTHS_SPANISH[satDate.getMonth()];
+    const monthNameShort = monthNameFull.slice(0, 3);
+    const isToday = dateStr === formatDateToISO(new Date());
+    return {
+      date: satDate,
+      dateStr,
+      dayNumber,
+      monthNameFull,
+      monthNameShort,
+      isToday,
+    };
+  }, [currentMonday]);
+
+  // Check if this week has any batches scheduled on Saturday
+  const hasSaturdayBatches = useMemo(() => {
+    return activeBatches.some((b) => b.scheduledDate === saturdayInfo.dateStr);
+  }, [activeBatches, saturdayInfo.dateStr]);
+
+  // Is Saturday visible for this current week?
+  const isSaturdayVisible = !!enabledSaturdayWeeks[currentWeekKey] || hasSaturdayBatches;
+
+  // Handler to toggle Saturday for the current week
+  const handleToggleSaturdayForWeek = () => {
+    const nextVal = !isSaturdayVisible;
+    const next = { ...enabledSaturdayWeeks, [currentWeekKey]: nextVal };
+    setEnabledSaturdayWeeks(next);
     try {
-      localStorage.setItem('fabriplan_include_saturday', JSON.stringify(next));
+      localStorage.setItem('vagone_saturday_weeks', JSON.stringify(next));
     } catch (e) {
       console.error(e);
     }
   };
 
-  // Compute weekly days
+  // Handler to disable / hide Saturday for the current week
+  const handleDisableSaturdayForWeek = () => {
+    const next = { ...enabledSaturdayWeeks, [currentWeekKey]: false };
+    setEnabledSaturdayWeeks(next);
+    try {
+      localStorage.setItem('vagone_saturday_weeks', JSON.stringify(next));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Compute weekly days (5 days if Saturday not visible, 6 days if enabled)
   const weekDays = useMemo(() => {
-    return getWeekDays(currentMonday, includeSaturday, activeBatches, recipes);
-  }, [currentMonday, includeSaturday, activeBatches, recipes]);
+    return getWeekDays(currentMonday, isSaturdayVisible, activeBatches, recipes);
+  }, [currentMonday, isSaturdayVisible, activeBatches, recipes]);
 
   // Selected recipe object for modal
   const selectedRecipe = useMemo(() => {
@@ -391,7 +437,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
       });
     }
 
-    text += `\n_Generado por FabriPlan - Control de Fábrica_`;
+    text += `\n_Generado por Planificador Vagone - Control de Fábrica_`;
 
     navigator.clipboard.writeText(text).then(() => {
       setCopiedDayText(true);
@@ -446,7 +492,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
       text += `\n`;
     }
 
-    text += `_Generado por FabriPlan - Control de Fábrica_`;
+    text += `_Generado por Planificador Vagone - Control de Fábrica_`;
 
     navigator.clipboard.writeText(text).then(() => {
       setCopiedWeeklyText(true);
@@ -532,7 +578,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
           </div>
         </div>
 
-        {/* Sub-Header: Week Controls & Saturday Toggle (Shown in weekly view) */}
+        {/* Sub-Header: Week Controls (Shown in weekly view) */}
         {viewMode === 'weekly' && (
           <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             {/* Week Navigator */}
@@ -567,21 +613,21 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
               </div>
             </div>
 
-            {/* Saturday Option Toggle */}
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors">
+            {/* Right side controls: Saturday toggle & Summary link */}
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition-colors">
                 <input
                   type="checkbox"
-                  checked={includeSaturday}
-                  onChange={handleToggleSaturday}
+                  checked={isSaturdayVisible}
+                  onChange={handleToggleSaturdayForWeek}
                   className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
                 />
-                <span>Habilitar Sábado (6 días)</span>
+                <span>Habilitar Sábado ({saturdayInfo.dayNumber} {saturdayInfo.monthNameShort})</span>
               </label>
 
               <button
                 onClick={() => setViewMode('weekly_summary')}
-                className="text-xs font-bold text-amber-700 hover:text-amber-800 hover:underline flex items-center gap-1"
+                className="text-xs font-bold text-amber-700 hover:text-amber-800 hover:underline flex items-center gap-1 bg-amber-50/80 px-3 py-1.5 rounded-xl border border-amber-200/80"
               >
                 <span>Ver compras de la semana</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -596,8 +642,8 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
       {/* ========================================================================= */}
       {viewMode === 'weekly' && (
         <div className="space-y-6">
-          {/* Day Cards Columns */}
-          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-${includeSaturday ? '6' : '5'} gap-4`}>
+          {/* Day Cards Columns (5 cols when Mon-Fri, 6 cols when Saturday is enabled) */}
+          <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 ${isSaturdayVisible ? 'xl:grid-cols-6' : 'xl:grid-cols-5'} gap-4`}>
             {weekDays.map((day) => {
               const hasBatches = day.batches.length > 0;
 
@@ -612,14 +658,17 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                       : 'border-slate-200'
                   }`}
                 >
-                  {/* Day Header */}
-                  <div className={`p-4 border-b ${
-                    day.isToday ? 'bg-amber-500/10 border-amber-200' : 'bg-slate-50/80 border-slate-100'
+                  {/* UPPER SECTION: Day Header, Segmented Labor Bar, Freezer Occupancy & Packaging Banner */}
+                  <div className={`p-3.5 border-b-2 space-y-3 ${
+                    day.isToday 
+                      ? 'bg-amber-100/80 border-amber-300' 
+                      : 'bg-slate-100 border-slate-300'
                   }`}>
+                    {/* Day Title & Date */}
                     <div className="flex items-center justify-between gap-1">
                       <div className="flex items-center gap-1.5">
                         <span className={`text-xs font-black uppercase tracking-wider ${
-                          day.isToday ? 'text-amber-700 font-extrabold' : 'text-slate-800'
+                          day.isToday ? 'text-amber-900 font-extrabold' : 'text-slate-800'
                         }`}>
                           {day.dayName}
                         </span>
@@ -629,201 +678,301 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className="text-xs font-bold text-slate-500">
-                        {day.dayNumber} {day.monthName}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-500">
+                          {day.dayNumber} {day.monthName}
+                        </span>
+                        {day.isSaturday && (
+                          <button
+                            onClick={handleDisableSaturdayForWeek}
+                            className="text-[10px] text-slate-400 hover:text-rose-600 font-bold p-0.5 rounded hover:bg-rose-50 transition-colors"
+                            title="Ocultar sábado de esta semana"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Daily Labor & Occupancy % */}
-                    {hasBatches && (
-                      <div className="mt-2.5 space-y-1.5">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-bold text-slate-700 flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            Ocupación del día:
-                          </span>
-                          <span className={`font-black text-xs px-1.5 py-0.2 rounded ${
-                            day.isLaborOverloaded
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : day.totalLaborPercent >= 90
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}>
-                            {day.totalLaborPercent}%
-                          </span>
-                        </div>
+                    {/* Daily Labor & Segmented Occupancy Bar (Based on 8h shift) */}
+                    <div className="space-y-1.5 bg-white/80 p-2 rounded-xl border border-slate-200/90 shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-slate-700 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          Ocupación Laboral:
+                        </span>
+                        <span className={`font-black text-xs px-1.5 py-0.2 rounded ${
+                          day.isLaborOverloaded
+                            ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                            : day.totalLaborPercent >= 90
+                            ? 'bg-amber-100 text-amber-800'
+                            : day.totalLaborPercent > 0
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {day.totalLaborPercent}%
+                        </span>
+                      </div>
 
-                        {/* Visual Occupancy Bar */}
-                        <div className="w-full bg-slate-200/80 rounded-full h-1.5 overflow-hidden">
+                      {/* Multi-Segment Colored Labor Bar: 
+                          1. Empaquetado (Blue - start of day)
+                          2. Producción (Orange - middle of day)
+                          3. Limpieza (Green - end of day / 40m Fridays)
+                      */}
+                      <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden flex shadow-inner">
+                        {/* 1. Empaquetado (Blue - start of day) */}
+                        {day.packagingReservedMinutes > 0 && (
                           <div
-                            className={`h-full rounded-full transition-all ${
-                              day.isLaborOverloaded
-                                ? 'bg-rose-500'
-                                : day.totalLaborPercent >= 80
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
-                            }`}
-                            style={{ width: `${Math.min(100, day.totalLaborPercent)}%` }}
+                            className="bg-blue-500 h-full transition-all shrink-0"
+                            style={{ width: `${(day.packagingReservedMinutes / 480) * 100}%` }}
+                            title={`Empaquetado día previo: ${day.packagingReservedMinutes} min`}
                           />
-                        </div>
-
-                        {day.isLaborOverloaded && (
-                          <div className="flex items-center gap-1 text-[10px] text-rose-700 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                            <AlertTriangle className="w-3 h-3 shrink-0" />
-                            <span>Sobrecarga ({day.totalLaborPercent}%): no dará el tiempo en 1 turno</span>
-                          </div>
                         )}
+                        {/* 2. Producción (Orange/Amber - middle) */}
+                        {day.productionMinutes > 0 && (
+                          <div
+                            className={`h-full transition-all shrink-0 ${day.isLaborOverloaded ? 'bg-rose-500' : 'bg-amber-500'}`}
+                            style={{ width: `${Math.min(100 - (day.packagingPercent + day.cleaningPercent), (day.productionMinutes / 480) * 100)}%` }}
+                            title={`Producción de recetas: ${day.productionMinutes} min (${day.productionHours} hs)`}
+                          />
+                        )}
+                        {/* 3. Limpieza (Green - end of day) */}
+                        {day.cleaningReservedMinutes > 0 && (
+                          <div
+                            className="bg-emerald-500 h-full transition-all shrink-0"
+                            style={{ width: `${(day.cleaningReservedMinutes / 480) * 100}%` }}
+                            title={`${day.isFriday ? 'Limpieza profunda' : 'Limpieza'}: ${day.cleaningReservedMinutes} min`}
+                          />
+                        )}
+                      </div>
 
-                        <div className="flex items-center justify-between text-[10px] font-medium text-slate-500">
-                          <span>{day.totalHours} hs de labor</span>
-                          <span>{day.totalUnits.toLocaleString('es-AR')} u</span>
+                      {/* Overload Alert */}
+                      {day.isLaborOverloaded && (
+                        <div className="flex items-start gap-1 text-[10px] text-rose-700 font-bold bg-rose-50 px-1.5 py-1 rounded border border-rose-200 leading-tight">
+                          <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                          <span>Sobrecarga ({day.totalLaborPercent}%): excede la jornada de 8 hs ({day.totalHours} hs planificadas)</span>
+                        </div>
+                      )}
+
+                      {/* Legend & Breakdown with explicit colored titles on the exact same row */}
+                      <div className="pt-0.5">
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold gap-1.5">
+                          <span className="shrink-0 text-slate-700 font-black">
+                            Total: {day.totalLaborFormatted} ({day.totalHours} hs / 8 hs)
+                          </span>
+                          <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-[9.5px]">
+                            <span className="flex items-center gap-1 text-blue-600 font-bold" title="Empaquetado">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                              <span>Empaquetado</span>
+                            </span>
+                            <span className="flex items-center gap-1 text-amber-600 font-bold" title="Producción">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                              <span>Producción</span>
+                            </span>
+                            <span className="flex items-center gap-1 text-emerald-600 font-bold" title={day.isFriday ? 'Limpieza profunda de viernes' : 'Limpieza diaria'}>
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              <span>{day.isFriday ? 'Limpieza profunda' : 'Limpieza'}</span>
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    )}
+                    </div>
 
-                    {!hasBatches && (
-                      <div className="mt-2 text-[11px] font-medium text-slate-400">
-                        Día libre (0% ocupación)
+                    {/* Ocupación de freezers de producción (Both freezers have identical capacity = 100% capacity combined) */}
+                    <div className="space-y-1.5 bg-white/80 p-2 rounded-xl border border-slate-200/90 shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-slate-700 flex items-center gap-1">
+                          <Snowflake className="w-3 h-3 text-cyan-600" />
+                          Ocupación de freezers de producción:
+                        </span>
+                        <span className={`font-black text-xs px-1.5 py-0.2 rounded ${
+                          day.isFreezerOverloaded
+                            ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                            : day.totalFreezerPercent >= 90
+                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                            : day.totalFreezerPercent > 0
+                            ? 'bg-cyan-50 text-cyan-800 border border-cyan-200'
+                            : 'bg-slate-100 text-slate-400'
+                        }`}>
+                          {day.totalFreezerPercent}%
+                        </span>
                       </div>
-                    )}
 
-                    {/* Freezer load chips (Interchangeable F1/F2) */}
-                    {hasBatches && (
-                      <div className="mt-2 pt-2 border-t border-slate-200/60 text-[10px] space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-slate-600 flex items-center gap-1">
-                            <Snowflake className="w-3 h-3 text-cyan-600" />
-                            Frío:
-                          </span>
-                          <span className={`font-bold px-1.5 py-0.2 rounded ${
-                            day.isFreezerOverloaded
-                              ? 'bg-red-100 text-red-700'
-                              : day.totalFreezerPercent > 100
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-cyan-50 text-cyan-800 border border-cyan-200'
-                          }`}>
-                            {day.totalFreezerPercent <= 100
-                              ? `${day.totalFreezerPercent}% (1 freezer)`
-                              : `${day.totalFreezerPercent}% (requiere 2)`}
-                          </span>
+                      {/* Dual-freezer visual bars (F1 & F2) */}
+                      <div className="grid grid-cols-2 gap-1.5 text-[9px]">
+                        <div className="bg-slate-50 p-1 rounded border border-slate-200">
+                          <div className="flex justify-between text-slate-600 font-semibold mb-0.5">
+                            <span>F1:</span>
+                            <span className="font-bold">{day.f1Percent}%</span>
+                          </div>
+                          <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
+                            <div
+                              className="bg-cyan-600 h-full rounded-full transition-all"
+                              style={{ width: `${Math.min(100, day.f1Percent)}%` }}
+                            />
+                          </div>
                         </div>
 
-                        <div className="flex items-center justify-between text-[9px] text-slate-500">
-                          <span>F1: {day.f1Percent}%</span>
-                          <span>{day.f2Percent > 0 ? `F2: ${day.f2Percent}%` : 'F2: Libre (o F1)'}</span>
+                        <div className="bg-slate-50 p-1 rounded border border-slate-200">
+                          <div className="flex justify-between text-slate-600 font-semibold mb-0.5">
+                            <span>F2:</span>
+                            <span className="font-bold">{day.f2Percent > 0 ? `${day.f2Percent}%` : 'Libre'}</span>
+                          </div>
+                          <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
+                            <div
+                              className="bg-blue-600 h-full rounded-full transition-all"
+                              style={{ width: `${Math.min(100, day.f2Percent)}%` }}
+                            />
+                          </div>
                         </div>
+                      </div>
+
+                      {/* Freezer Overload Alert Notification */}
+                      {day.isFreezerOverloaded && (
+                        <div className="p-1.5 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-800 space-y-0.5">
+                          <div className="flex items-center gap-1 font-bold">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                            <span>¡Capacidad de frío superada!</span>
+                          </div>
+                          <p className="text-[9px] text-rose-700 leading-tight">
+                            Requiere <strong>{day.totalFreezerPercent}%</strong> de ocupación ({day.totalFreezerFraction.toFixed(1)} freezers). Supera los 2 freezers de planta (máx. 100%).
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Next-Day Packaging Reservation Compact Box */}
+                    {day.hasPreviousDayPackaging && (
+                      <div className="flex items-center justify-between p-2 rounded-xl bg-amber-200/70 border border-amber-300 text-amber-950 shadow-2xs">
+                        <div className="flex items-center gap-1.5 min-w-0 font-bold text-xs truncate">
+                          <Package className="w-3.5 h-3.5 text-amber-800 shrink-0" />
+                          <span className="truncate">
+                            Empaquetado ({day.previousDayPackagingBatches.map(b => b.recipeName).join(', ')})
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-300 text-amber-950 shrink-0 ml-1.5">
+                          +{day.packagingReservedMinutes} min
+                        </span>
                       </div>
                     )}
                   </div>
 
-                  {/* Day Content: Scheduled Productions List */}
-                  <div className="p-3.5 space-y-2.5 flex-1">
-                    {day.batches.length === 0 ? (
-                      <div className="py-8 text-center text-slate-400 space-y-2">
-                        <p className="text-xs">Sin producción programada</p>
-                        <button
-                          onClick={() => handleOpenAddForDay(day.dateStr)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition-colors"
-                        >
-                          <Plus className="w-3.5 h-3.5" /> Asignar
-                        </button>
+                  {/* LOWER SECTION: Scheduled Productions List & Actions */}
+                  <div className="p-3 bg-white space-y-2.5 flex-1 flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-700">
+                        <div className="flex items-center gap-1.5 text-slate-800">
+                          <Layers className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Producción del día</span>
+                        </div>
+                        <span className="font-extrabold px-1.5 py-0.2 rounded bg-slate-200/80 text-slate-700 text-[9px]">
+                          {day.batches.length > 0 ? `${day.batches.length} ${day.batches.length === 1 ? 'lote' : 'lotes'}` : '0 lotes'}
+                        </span>
                       </div>
-                    ) : (
-                      day.batches.map((batch) => {
-                        const recipe = recipes.find((r) => r.id === batch.recipeId);
-                        const baseUnits = recipe?.baseYieldUnits || 1;
-                        const pct = Math.round((batch.targetUnits / baseUnits) * 100);
-                        const isCompleted = batch.status === 'completado';
 
-                        return (
-                          <div
-                            key={batch.id}
-                            className={`p-2.5 rounded-xl border shadow-xs transition-all space-y-2 group ${
-                              isCompleted
-                                ? 'bg-emerald-50/60 border-emerald-300 text-slate-800'
-                                : 'bg-white border-slate-200 hover:border-amber-400/80'
-                            }`}
+                      {day.batches.length === 0 ? (
+                        <div className="py-7 text-center text-slate-400 space-y-2">
+                          <p className="text-xs">Sin producción programada</p>
+                          <button
+                            onClick={() => handleOpenAddForDay(day.dateStr)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition-colors"
                           >
-                            <div className="flex items-start justify-between gap-1.5">
-                              <div>
-                                <div className="flex items-center gap-1">
-                                  <h4 className={`text-xs font-bold leading-snug ${isCompleted ? 'text-emerald-950' : 'text-slate-900'}`}>
-                                    {batch.recipeName}
-                                  </h4>
+                            <Plus className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Agregar producción</span>
+                          </button>
+                        </div>
+                      ) : (
+                        day.batches.map((batch) => {
+                          const recipe = recipes.find((r) => r.id === batch.recipeId);
+                          const baseUnits = recipe?.baseYieldUnits || 1;
+                          const pct = Math.round((batch.targetUnits / baseUnits) * 100);
+                          const isCompleted = batch.status === 'completado';
+
+                          return (
+                            <div
+                              key={batch.id}
+                              className={`p-2.5 rounded-xl border shadow-xs transition-all space-y-2 group ${
+                                isCompleted
+                                  ? 'bg-emerald-50/60 border-emerald-300 text-slate-800'
+                                  : 'bg-white border-slate-200 hover:border-amber-400/80'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-1.5">
+                                <div>
+                                  <div className="flex items-center gap-1">
+                                    <h4 className={`text-xs font-bold leading-snug ${isCompleted ? 'text-emerald-950' : 'text-slate-900'}`}>
+                                      {batch.recipeName}
+                                    </h4>
+                                    {isCompleted && (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className={`text-[11px] font-extrabold px-1.5 py-0.2 rounded border ${
+                                      isCompleted
+                                        ? 'text-emerald-800 bg-emerald-100/70 border-emerald-300'
+                                        : 'text-amber-700 bg-amber-50 border-amber-200'
+                                    }`}>
+                                      {pct}% ({batch.targetUnits.toLocaleString('es-AR')} {recipe?.yieldUnitName || 'u'})
+                                    </span>
+                                    <span 
+                                      className="text-[10px] text-slate-500 font-bold flex items-center gap-0.5"
+                                      title={`Duración de elaboración: ${formatHoursToDuration(batch.calculatedHours)} (${batch.calculatedHours} hs)`}
+                                    >
+                                      <Clock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                      {formatHoursToDuration(batch.calculatedHours)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100">
+                                  <button
+                                    onClick={() => handleOpenEditBatch(batch)}
+                                    className="p-1 text-slate-400 hover:text-amber-600 rounded"
+                                    title="Editar cantidad / %"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => onRemoveBatch(batch.id)}
+                                    className="p-1 text-slate-400 hover:text-red-600 rounded"
+                                    title="Quitar"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Completado Checkbox */}
+                              <div className="pt-1.5 border-t border-slate-200/60">
+                                <label className={`flex items-center justify-between gap-2 p-1.5 rounded-lg border cursor-pointer select-none transition-all ${
+                                  isCompleted
+                                    ? 'bg-emerald-100/80 border-emerald-300 text-emerald-950 font-bold'
+                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                }`}>
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="checkbox"
+                                      checked={isCompleted}
+                                      onChange={(e) => onUpdateBatchStatus(batch.id, e.target.checked ? 'completado' : 'planificado')}
+                                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+                                    />
+                                    <span className="text-[10.5px] font-bold">
+                                      {isCompleted ? 'Producción realizada' : 'Marcar completado'}
+                                    </span>
+                                  </div>
                                   {isCompleted && (
-                                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-900 uppercase">
+                                      Hecho
+                                    </span>
                                   )}
-                                </div>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  <span className={`text-[11px] font-extrabold px-1.5 py-0.2 rounded border ${
-                                    isCompleted
-                                      ? 'text-emerald-800 bg-emerald-100/70 border-emerald-300'
-                                      : 'text-amber-700 bg-amber-50 border-amber-200'
-                                  }`}>
-                                    {pct}% ({batch.targetUnits.toLocaleString('es-AR')} {recipe?.yieldUnitName || 'u'})
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 font-medium">
-                                    {batch.calculatedHours}h
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100">
-                                <button
-                                  onClick={() => handleOpenEditBatch(batch)}
-                                  className="p-1 text-slate-400 hover:text-amber-600 rounded"
-                                  title="Editar cantidad / %"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => onRemoveBatch(batch.id)}
-                                  className="p-1 text-slate-400 hover:text-red-600 rounded"
-                                  title="Quitar"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
+                                </label>
                               </div>
                             </div>
-
-                            {/* Status Pill & Weighing direct trigger */}
-                            <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-slate-200/60 text-[10px]">
-                              <select
-                                value={batch.status}
-                                onChange={(e) => onUpdateBatchStatus(batch.id, e.target.value as ActiveBatch['status'])}
-                                className={`text-[10px] font-bold rounded px-1.5 py-0.5 cursor-pointer focus:outline-none transition-colors ${
-                                  isCompleted
-                                    ? 'bg-emerald-100 border border-emerald-300 text-emerald-900 font-extrabold'
-                                    : 'bg-slate-50 border border-slate-200 text-slate-700'
-                                }`}
-                              >
-                                {statuses.map((st) => (
-                                  <option key={st.id} value={st.id}>
-                                    {st.label}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <button
-                                onClick={() => {
-                                  onSelectBatchForKitchen(batch);
-                                  onNavigateTab('kitchen');
-                                }}
-                                className={`p-1 rounded flex items-center gap-0.5 font-bold transition-colors ${
-                                  isCompleted
-                                    ? 'text-emerald-700 bg-emerald-100/80 hover:bg-emerald-200'
-                                    : 'text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200'
-                                }`}
-                                title="Abrir Guía de Pesaje"
-                              >
-                                <Scale className={`w-3 h-3 ${isCompleted ? 'text-emerald-600' : 'text-amber-500'}`} />
-                                <span>Pesar</span>
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
 
                   {/* Day Footer Actions */}
@@ -832,8 +981,8 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                       onClick={() => handleOpenAddForDay(day.dateStr)}
                       className="flex-1 py-1.5 px-2 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors shadow-2xs"
                     >
-                      <Plus className="w-3 h-3 text-amber-600" />
-                      <span>Agregar</span>
+                      <Plus className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Agregar producción</span>
                     </button>
 
                     {hasBatches && (
@@ -944,7 +1093,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                   {weeklyInsumos.totalHours} hs
                 </div>
                 <span className="text-xs text-slate-400">
-                  Promedio {(weeklyInsumos.totalHours / (includeSaturday ? 6 : 5)).toFixed(1)} h/día
+                  Promedio {(weeklyInsumos.totalHours / (isSaturdayVisible ? 6 : 5)).toFixed(1)} h/día
                 </span>
               </div>
 
@@ -1444,9 +1593,9 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                       })}
                     </div>
 
-                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-500 font-medium">
-                      <span>Tiempo de planta estimado: <strong>{selectedDayForInsumos.totalHours} hs</strong></span>
-                      <span>Ocupación de frío: <strong>F1: {selectedDayForInsumos.f1Percent}% | F2: {selectedDayForInsumos.f2Percent}%</strong></span>
+                    <div className="pt-2 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-slate-600 font-medium">
+                      <span>Tiempo estimado: <strong>{selectedDayForInsumos.totalHours} hs / 8 hs ({selectedDayForInsumos.totalLaborPercent}%)</strong></span>
+                      <span>Ocupación de freezers de producción: <strong>{selectedDayForInsumos.totalFreezerPercent}% total (F1: {selectedDayForInsumos.f1Percent}% | F2: {selectedDayForInsumos.f2Percent > 0 ? `${selectedDayForInsumos.f2Percent}%` : 'Libre'})</strong></span>
                     </div>
                   </div>
 
@@ -1596,23 +1745,8 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
 
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
-                  onClick={() => {
-                    const firstBatch = selectedDayForInsumos.batches[0];
-                    if (firstBatch) {
-                      onSelectBatchForKitchen(firstBatch);
-                      onNavigateTab('kitchen');
-                    }
-                    setSelectedDayForInsumos(null);
-                  }}
-                  className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5"
-                >
-                  <Scale className="w-4 h-4 text-amber-400" />
-                  <span>Ir a Guía de Pesaje</span>
-                </button>
-
-                <button
                   onClick={() => setSelectedDayForInsumos(null)}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
+                  className="w-full sm:w-auto px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
                 >
                   Cerrar
                 </button>
@@ -1627,7 +1761,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
       {/* ========================================================================= */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-5">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] overflow-y-auto">
             <div>
               <h2 className="text-lg font-extrabold text-slate-900">
                 {editingBatchId ? 'Modificar Producción Agendada' : 'Agendar Producción en el Calendario'}
@@ -1659,19 +1793,19 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   Escala de Producción (% del Lote Estándar):
                 </label>
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
-                  {[25, 50, 75, 100, 125, 150, 200].map((pct) => (
+                <div className="grid grid-cols-4 gap-2">
+                  {[25, 50, 75, 100].map((pct) => (
                     <button
                       key={pct}
                       type="button"
                       onClick={() => handlePercentageChange(pct)}
-                      className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      className={`py-2 rounded-xl text-xs font-bold transition-all border ${
                         productionPercentage === pct
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          ? 'bg-amber-500 border-amber-500 text-slate-950 shadow-sm'
+                          : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      {pct}%
+                      {pct}% {pct === 100 && '(Completo)'}
                     </button>
                   ))}
                 </div>
@@ -1723,65 +1857,62 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                 />
               </div>
 
-              {/* Alternative Ingredients Option if applicable */}
-              {selectedRecipe && selectedRecipe.ingredients.some((i) => i.alternative) && (
-                <div className="bg-amber-50/70 p-3 rounded-xl border border-amber-200/70 space-y-2">
-                  <span className="text-xs font-bold text-amber-950 block">Variantes / Sustitutos de Receta:</span>
-                  {selectedRecipe.ingredients
-                    .filter((i) => i.alternative)
-                    .map((ing) => (
-                      <label key={ing.id} className="flex items-center gap-2 text-xs text-slate-800 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedAlternatives.includes(ing.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedAlternatives((prev) => [...prev, ing.id]);
-                            } else {
-                              setSelectedAlternatives((prev) => prev.filter((id) => id !== ing.id));
-                            }
-                          }}
-                          className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
-                        />
-                        <span>Usar <strong>{ing.alternative?.name}</strong> en vez de {ing.name}</span>
-                      </label>
-                    ))}
-                </div>
-              )}
-
-              {/* Notes / Turno */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Turno / Notas:</label>
-                <input
-                  type="text"
-                  value={batchNotes}
-                  onChange={(e) => setBatchNotes(e.target.value)}
-                  placeholder="Ej: Turno Mañana 08:00 hs / Responsable Juan"
-                  className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900"
-                />
-              </div>
-
               {/* Live Preview Metrics */}
               {modalScaled && (
-                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-2">
-                  <div className="flex items-center justify-between text-slate-700">
-                    <span className="flex items-center gap-1 font-semibold">
-                      <Clock className="w-3.5 h-3.5 text-amber-600" />
-                      Carga de Labor: <strong>{modalScaled.laborPercent}% ({modalScaled.estimatedHours} hs)</strong>
-                    </span>
-                    <span className="flex items-center gap-1 font-semibold">
-                      <Snowflake className="w-3.5 h-3.5 text-cyan-600" />
-                      Frío requerido: <strong>{modalScaled.freezer.singleFreezerPercent}%</strong>
-                    </span>
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-3">
+                  {/* Section A: Production Time Logic */}
+                  <div className="bg-white p-3 rounded-xl border border-amber-200/90 shadow-2xs space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        Tiempo de Elaboración:
+                      </span>
+                      <span className="font-extrabold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
+                        {modalScaled.formattedDuration} ({modalScaled.estimatedHours} hs)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1 border-t border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-medium">Ocupación de Turno (8 hs):</span>
+                        <strong className="text-slate-800">{Math.round((modalScaled.estimatedMinutes / 480) * 100)}% de la jornada</strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-medium">Ritmo de Planta:</span>
+                        <strong className="text-slate-800">{modalScaled.timeSpec.rateFormatted}</strong>
+                      </div>
+                    </div>
                   </div>
 
-                  <p className="text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
-                    ❄️ {modalScaled.freezer.occupancySummary}
-                  </p>
+                  {/* Section B: Freezer Occupancy Logic */}
+                  <div className="bg-white p-3 rounded-xl border border-cyan-200/90 shadow-2xs space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                        <Snowflake className="w-3.5 h-3.5 text-cyan-600" />
+                        Ocupación de Freezers (F1 + F2):
+                      </span>
+                      <span className="font-extrabold text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded-lg border border-cyan-200">
+                        {modalScaled.freezer.totalFreezerOccupancyPercent}% total
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      ❄️ {modalScaled.freezer.occupancySummary}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      📐 {modalScaled.freezer.trayDescription}
+                    </p>
+                  </div>
 
-                  <p className="text-[10px] text-slate-500">
-                    📐 {modalScaled.freezer.trayDescription}
-                  </p>
+                  {modalScaled.recipe && !['postres', 'canelones'].includes(modalScaled.recipe.category) && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-amber-900 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                      <Package className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span>Se reservarán <strong>35 min</strong> de labor al día siguiente para su empaquetado.</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-700 bg-slate-100 p-2 rounded-lg border border-slate-200">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span>Se reservan <strong>20 min</strong> al cierre del turno para limpieza y orden de planta.</span>
+                  </div>
 
                   {modalScaled.freezer.isOverCapacity && (
                     <div className="p-2 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg text-[11px] font-bold">

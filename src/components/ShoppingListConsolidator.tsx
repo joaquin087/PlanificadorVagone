@@ -18,7 +18,7 @@ import { consolidateBatches, formatGrams, formatSimpleKg } from '../utils/calcul
 interface ShoppingListConsolidatorProps {
   recipes: Recipe[];
   activeBatches: ActiveBatch[];
-  onNavigateTab: (tab: 'planner' | 'scaler') => void;
+  onNavigateTab: (tab: 'calendar' | 'recipes' | 'shopping') => void;
 }
 
 export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> = ({
@@ -63,7 +63,7 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
       text += `${cat.label.toUpperCase()}:\n`;
       items.forEach((item) => {
         const bufferedGrams = item.totalGrams * (1 + bufferPercent / 100);
-        text += `• ${item.name}: ${formatSimpleKg(bufferedGrams, item.unit)}\n`;
+        text += `• ${item.name}: ${formatSimpleKg(bufferedGrams, item.unit, item.name)}\n`;
       });
       text += `\n`;
     });
@@ -90,10 +90,10 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
           Agrega lotes en el Planificador o calcula una receta para que la fábrica consolide automáticamente la lista de compras agrupada por proveedor.
         </p>
         <button
-          onClick={() => onNavigateTab('planner')}
+          onClick={() => onNavigateTab('calendar')}
           className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-md"
         >
-          Ir al Planificador de Lotes
+          Ir al Calendario de Planificación
         </button>
       </div>
     );
@@ -192,7 +192,7 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
 
                         <div className="text-right">
                           <span className="text-xs font-black text-slate-900 block">
-                            {formatSimpleKg(bufferedGrams, item.unit)}
+                            {formatSimpleKg(bufferedGrams, item.unit, item.name)}
                           </span>
                           <span className="text-[10px] text-slate-400">
                             {Math.round(bufferedGrams).toLocaleString('es-AR')} {item.unit === 'L' || item.unit === 'ml' ? 'ml' : item.unit === 'u' ? 'u' : 'g'}

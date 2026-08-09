@@ -514,6 +514,7 @@ export default function App() {
           <ShoppingListConsolidator
             recipes={recipes}
             activeBatches={activeBatches}
+            onUpdateBatchStatus={handleUpdateBatchStatus}
             onNavigateTab={(tab) => setCurrentTab(tab as MainTabType)}
           />
         )}

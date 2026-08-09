@@ -287,7 +287,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   }, [activeBatches, weekStartStr, weekEndStr]);
 
   const weeklyPlannedBatches = useMemo(() => {
-    return weeklyBatches.filter((b) => b.status === 'planificado');
+    return weeklyBatches.filter((b) => b.status !== 'completado');
   }, [weeklyBatches]);
 
   const weeklyCompletedBatches = useMemo(() => {
@@ -315,7 +315,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   }, [activeBatches, monthlyDate]);
 
   const monthlyPlannedBatches = useMemo(() => {
-    return monthlyBatches.filter((b) => b.status === 'planificado');
+    return monthlyBatches.filter((b) => b.status !== 'completado');
   }, [monthlyBatches]);
 
   const monthlyInsumos = useMemo(() => {
@@ -397,7 +397,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
 
   // Copy day ingredients to clipboard for WhatsApp
   const handleCopyDayInsumos = (day: DaySchedule, includeCompleted: boolean = false) => {
-    const batchesToConsolidate = includeCompleted ? day.batches : day.batches.filter((b) => b.status === 'planificado');
+    const batchesToConsolidate = includeCompleted ? day.batches : day.batches.filter((b) => b.status !== 'completado');
     const dayInsumos = getConsolidatedInsumosForBatches(batchesToConsolidate, recipes);
 
     let text = `📅 *PRODUCCIÓN DEL DÍA: ${day.dayName.toUpperCase()} ${day.dayNumber} ${day.monthName.toUpperCase()}*\n`;
@@ -943,27 +943,30 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                                 </div>
                               </div>
 
-                              {/* Completado Checkbox */}
+                              {/* Completado / Insumos en stock Checkbox */}
                               <div className="pt-1.5 border-t border-slate-200/60">
-                                <label className={`flex items-center justify-between gap-2 p-1.5 rounded-lg border cursor-pointer select-none transition-all ${
-                                  isCompleted
-                                    ? 'bg-emerald-100/80 border-emerald-300 text-emerald-950 font-bold'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                                }`}>
-                                  <div className="flex items-center gap-1.5">
+                                <label 
+                                  className={`flex items-center justify-between gap-2 p-1.5 rounded-lg border cursor-pointer select-none transition-all ${
+                                    isCompleted
+                                      ? 'bg-emerald-100/90 border-emerald-400 text-emerald-950 font-bold shadow-2xs'
+                                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                  }`}
+                                  title="Marca si ya tienes todos los insumos en fábrica o si la producción ya fue realizada (descuenta los insumos de la lista de compras)."
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0">
                                     <input
                                       type="checkbox"
                                       checked={isCompleted}
                                       onChange={(e) => onUpdateBatchStatus(batch.id, e.target.checked ? 'completado' : 'planificado')}
-                                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+                                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer shrink-0"
                                     />
-                                    <span className="text-[10.5px] font-bold">
-                                      {isCompleted ? 'Producción realizada' : 'Marcar completado'}
+                                    <span className="text-[10.5px] font-bold truncate">
+                                      Insumos en stock / Completado
                                     </span>
                                   </div>
                                   {isCompleted && (
-                                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-900 uppercase">
-                                      Hecho
+                                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-900 uppercase shrink-0">
+                                      Listo
                                     </span>
                                   )}
                                 </label>
@@ -1553,7 +1556,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
 
             {/* Daily Batches Overview */}
             {(() => {
-              const plannedBatches = selectedDayForInsumos.batches.filter((b) => b.status === 'planificado');
+              const plannedBatches = selectedDayForInsumos.batches.filter((b) => b.status !== 'completado');
               const completedBatches = selectedDayForInsumos.batches.filter((b) => b.status === 'completado');
               const isAllCompleted = selectedDayForInsumos.batches.length > 0 && plannedBatches.length === 0;
 

@@ -96,7 +96,14 @@ export interface ConsolidatedIngredient {
   totalGrams: number;
   totalUnits?: number;
   unit: string;
-  usedInRecipes: { recipeName: string; amount: number; unit: string }[];
+  usedInRecipes: { 
+    recipeName: string; 
+    amount: number; 
+    unit: string;
+    scheduledDate?: string;
+    formattedDate?: string;
+    batchId?: string;
+  }[];
   isPurchased?: boolean;
 }
 
@@ -104,6 +111,12 @@ export interface ConsolidatedPackaging {
   name: string;
   type: string;
   totalCount: number;
-  usedInRecipes: { recipeName: string; count: number }[];
+  usedInRecipes: { 
+    recipeName: string; 
+    count: number;
+    scheduledDate?: string;
+    formattedDate?: string;
+    batchId?: string;
+  }[];
   isPurchased?: boolean;
 }

@@ -453,6 +453,30 @@ export function scaleRecipe(
   };
 }
 
+/**
+ * Formats a date string (YYYY-MM-DD) to a concise Spanish abbreviation: "mié 12/08"
+ */
+export function formatBatchDateShort(dateStr: string): string {
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-').map(Number);
+  if (!year || !month || !day) return dateStr;
+  const d = new Date(year, month - 1, day);
+  const dayNamesShort = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+  const dayName = dayNamesShort[d.getDay()] || '';
+  const dd = String(day).padStart(2, '0');
+  const mm = String(month).padStart(2, '0');
+  return `${dayName} ${dd}/${mm}`;
+}
+
+/**
+ * Returns recipe name paired with scheduled date in parentheses: "Tiramisú (mié 12/08)"
+ */
+export function formatBatchLabelWithDate(recipeName: string, dateStr?: string): string {
+  if (!dateStr) return recipeName;
+  const shortDate = formatBatchDateShort(dateStr);
+  return shortDate ? `${recipeName} (${shortDate})` : recipeName;
+}
+
 export function consolidateBatches(
   batches: ActiveBatch[],
   recipes: Recipe[]
@@ -486,6 +510,8 @@ export function consolidateBatches(
       totalFreezerFraction += calculateBatchFreezerFraction(recipe, batch.targetUnits);
     }
 
+    const formattedDate = batch.scheduledDate ? formatBatchDateShort(batch.scheduledDate) : '';
+
     // Consolidate ingredients (exclude water)
     scaled.ingredients.forEach((ing) => {
       if (ing.name.toLowerCase().trim().startsWith('agua')) return;
@@ -506,6 +532,9 @@ export function consolidateBatches(
         recipeName: recipe.name,
         amount: ing.scaledGrams,
         unit: ing.unit || 'g',
+        scheduledDate: batch.scheduledDate,
+        formattedDate,
+        batchId: batch.id,
       });
     });
 
@@ -526,6 +555,9 @@ export function consolidateBatches(
       item.usedInRecipes.push({
         recipeName: recipe.name,
         count: pkg.scaledCount,
+        scheduledDate: batch.scheduledDate,
+        formattedDate,
+        batchId: batch.id,
       });
     });
   });

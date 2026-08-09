@@ -1,6 +1,6 @@
 {
   "name": "Planificador Vagone",
-  "description": "Planificador de producción de alimentos y pastas Vagone: cálculo de lotes, insumos, ocupación de freezers y calendario semanal.",
+  "description": "Planificador de producción de alimentos y pastas Vagone: catálogo maestro de insumos con desplegables, gestión de categorías, tablas separadas para insumos y empaque, y calendario semanal.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

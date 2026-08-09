@@ -1,4 +1,40 @@
-export type ProductCategory = 'tequenos' | 'chipas' | 'pastas' | 'canelones' | 'postres';
+export type ProductCategory = 
+  | 'tequenos' 
+  | 'chipas' 
+  | 'pastas' 
+  | 'canelones' 
+  | 'postres' 
+  | 'pizzas' 
+  | 'empanadas' 
+  | 'panaderia' 
+  | 'otros' 
+  | string;
+
+export interface IngredientCategoryConfig {
+  id: string; // e.g. 'lacteos', 'harinas_feculas', 'frescos_verduras', 'huevos', 'grasas_liquidos', 'especias_condimentos', 'otros'
+  name: string; // e.g. 'Lácteos, Quesos y Rellenos'
+  icon: string; // e.g. '🧀'
+  description?: string;
+  order: number;
+}
+
+export interface ProductionCategoryConfig {
+  id: string; // e.g. 'pastas', 'tequenos', 'chipas', 'canelones', 'postres', 'pizzas', 'empanadas', 'panaderia', 'otros'
+  name: string; // e.g. 'Pasta rellena', 'Tequeños & Snacks', etc.
+  icon: string; // e.g. '🥟'
+  color?: string;
+  badgeBg?: string;
+  badgeText?: string;
+  order: number;
+}
+
+export interface MasterIngredient {
+  id: string;
+  name: string;
+  categoryId: string;
+  defaultUnit: 'kg' | 'g' | 'L' | 'ml' | 'u' | 'paquetes';
+  notes?: string;
+}
 
 export interface Ingredient {
   id: string;
@@ -6,7 +42,7 @@ export interface Ingredient {
   amountGrams: number; // Base quantity in grams
   unit?: 'g' | 'kg' | 'ml' | 'L' | 'u' | 'paquetes'; // display unit
   displayUnit?: string;
-  category: 'lacteos' | 'harinas_feculas' | 'frescos_verduras' | 'huevos' | 'grasas_liquidos' | 'especias_condimentos' | 'otros';
+  category: 'lacteos' | 'harinas_feculas' | 'frescos_verduras' | 'huevos' | 'grasas_liquidos' | 'especias_condimentos' | 'otros' | string;
   alternative?: {
     name: string;
     amountGrams: number;
@@ -68,6 +104,8 @@ export interface Recipe {
   color: string;
   badgeBg: string;
   badgeText: string;
+  requiresNextDayPackaging?: boolean; // Whether product requires packaging next day after freezing
+  nextDayPackagingMinutes?: number; // Minutes required for next-day packaging (default ~35 min)
 }
 
 export interface ActiveBatch {
@@ -103,6 +141,8 @@ export interface ConsolidatedIngredient {
     scheduledDate?: string;
     formattedDate?: string;
     batchId?: string;
+    isBatchCompleted?: boolean;
+    batchStatus?: ActiveBatch['status'];
   }[];
   isPurchased?: boolean;
 }
@@ -117,6 +157,8 @@ export interface ConsolidatedPackaging {
     scheduledDate?: string;
     formattedDate?: string;
     batchId?: string;
+    isBatchCompleted?: boolean;
+    batchStatus?: ActiveBatch['status'];
   }[];
   isPurchased?: boolean;
 }

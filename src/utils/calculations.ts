@@ -1,4 +1,4 @@
-import { Recipe, Ingredient, PackagingItem, ActiveBatch, ConsolidatedIngredient, ConsolidatedPackaging } from '../types';
+import { Recipe, Ingredient, PackagingItem, ActiveBatch, ConsolidatedIngredient, ConsolidatedPackaging, MasterIngredient, IngredientCategoryConfig } from '../types';
 
 export interface ScaledIngredient extends Ingredient {
   scaledGrams: number;
@@ -244,6 +244,15 @@ export function getFreezerCapacitySpec(recipe: Recipe): {
       trayDescription: '400 potes apilados directamente (sin bandejas metálicas)',
     };
   }
+  if (recipe.category === 'pizzas' || recipe.id.includes('pizza')) {
+    return {
+      unitsPerFreezer: recipe.baseYieldUnits || 500,
+      unitLabel: recipe.yieldUnitName || 'pizzas',
+      maxTraysPerFreezer: 10,
+      isDirectPotes: false,
+      trayDescription: '10 bandejas pasantes / rejillas de ultracongelación',
+    };
+  }
   return {
     unitsPerFreezer: recipe.baseYieldUnits || 1000,
     unitLabel: recipe.yieldUnitName || 'unidades',
@@ -477,9 +486,494 @@ export function formatBatchLabelWithDate(recipeName: string, dateStr?: string): 
   return shortDate ? `${recipeName} (${shortDate})` : recipeName;
 }
 
+/**
+ * Canonical Ingredient Normalization for Argentine Commercial Pastas, Bakery and Food Production.
+ * Maps synonyms, typos, and variations to unified names, standard categories, and standard unit types.
+ */
+export interface CanonicalIngredientInfo {
+  canonicalName: string;
+  category: string;
+  unitType: 'mass' | 'volume' | 'count';
+  standardUnit: string; // 'kg' | 'g' | 'L' | 'ml' | 'u' | 'paquetes'
+}
+
+export function normalizeIngredientString(str: string): string {
+  return (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+export function getCanonicalIngredient(
+  rawName: string,
+  rawCategory?: string,
+  rawUnit?: string,
+  masterIngredients?: MasterIngredient[]
+): CanonicalIngredientInfo {
+  const norm = normalizeIngredientString(rawName);
+
+  // 1. HIGHEST PRIORITY: Check Master Ingredients Catalog
+  if (masterIngredients && masterIngredients.length > 0) {
+    const matchedMaster = masterIngredients.find((m) => {
+      if (m.name.toLowerCase().trim() === rawName.toLowerCase().trim()) return true;
+      const normMaster = normalizeIngredientString(m.name);
+      return normMaster === norm;
+    });
+
+    if (matchedMaster) {
+      const u = (matchedMaster.defaultUnit || rawUnit || 'kg').toLowerCase().trim();
+      let unitType: 'mass' | 'volume' | 'count' = 'mass';
+      let standardUnit = matchedMaster.defaultUnit || rawUnit || 'kg';
+
+      if (['u', 'unidades', 'paquetes', 'docenas', 'bandejas', 'potes', 'cajas'].includes(u)) {
+        unitType = 'count';
+        standardUnit = u === 'paquetes' ? 'paquetes' : 'u';
+      } else if (['l', 'ml', 'litros', 'cc', 'cm3'].includes(u)) {
+        unitType = 'volume';
+        standardUnit = u === 'l' || u === 'litros' ? 'L' : 'ml';
+      } else {
+        unitType = 'mass';
+        standardUnit = u === 'g' || u === 'gramos' ? 'g' : 'kg';
+      }
+
+      return {
+        canonicalName: matchedMaster.name,
+        category: matchedMaster.categoryId,
+        unitType,
+        standardUnit,
+      };
+    }
+  }
+
+  // 2. SECOND PRIORITY: If recipe ingredient has an explicit category assigned
+  if (rawCategory && rawCategory.trim() !== '' && rawCategory !== 'otros') {
+    const u = (rawUnit || '').toLowerCase().trim();
+    let unitType: 'mass' | 'volume' | 'count' = 'mass';
+    let standardUnit = rawUnit || 'g';
+
+    if (['u', 'unidades', 'paquetes', 'docenas', 'bandejas', 'potes', 'cajas'].includes(u)) {
+      unitType = 'count';
+      standardUnit = u === 'paquetes' ? 'paquetes' : 'u';
+    } else if (['l', 'ml', 'litros', 'cc', 'cm3'].includes(u)) {
+      unitType = 'volume';
+      standardUnit = u === 'l' || u === 'litros' ? 'L' : 'ml';
+    } else {
+      unitType = 'mass';
+      standardUnit = u === 'kg' || u === 'kilos' ? 'kg' : 'g';
+    }
+
+    let cleanName = rawName.trim();
+    if (norm.includes('dulce de leche') || norm === 'ddl' || norm.includes('dulce leche')) {
+      cleanName = 'Dulce de leche';
+    } else if (norm.includes('queso crema') || norm.includes('casancrem')) {
+      cleanName = 'Queso crema';
+    } else if (norm.includes('muzza') || norm.includes('mozzarella') || norm.includes('muzarella')) {
+      cleanName = 'Muzzarella';
+    } else if (norm.includes('danbo')) {
+      cleanName = 'Queso Danbo';
+    }
+
+    return {
+      canonicalName: cleanName,
+      category: rawCategory,
+      unitType,
+      standardUnit,
+    };
+  }
+
+  // 3. FALLBACK CANONICAL RULES (Standard factory catalog defaults)
+  // 1. CHEESES & DAIRY (Lácteos)
+  if (
+    norm.includes('muzza') || 
+    norm.includes('muza') || 
+    norm.includes('mozza') || 
+    norm === 'queso' || 
+    norm.includes('mozzarella') ||
+    norm.includes('muzarella') ||
+    norm.includes('muzzarella')
+  ) {
+    return {
+      canonicalName: 'Muzzarella',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('danbo')) {
+    return {
+      canonicalName: 'Queso Danbo',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('pategras') || norm.includes('pategras')) {
+    return {
+      canonicalName: 'Queso Pategrás',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('sardo')) {
+    return {
+      canonicalName: 'Queso Sardo',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('queso crema') || norm.includes('casancrem') || norm.includes('cream cheese')) {
+    return {
+      canonicalName: 'Queso crema',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('crema de leche') || (norm.includes('crema') && !norm.includes('queso'))) {
+    return {
+      canonicalName: 'Crema de leche',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('dulce de leche') || norm === 'ddl' || norm.includes('dulce leche')) {
+    return {
+      canonicalName: 'Dulce de leche',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('queso duro') || norm.includes('queso rallado') || norm.includes('queso para rallar')) {
+    return {
+      canonicalName: 'Queso duro (Pategrás / Sardo / Danbo)',
+      category: 'lacteos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  // 2. FLOURS & STARCHES (Harinas & Féculas)
+  if (norm.includes('harina') && (norm.includes('0000') || norm.includes('cuatro') || norm.includes('reposteria'))) {
+    return {
+      canonicalName: 'Harina 0000',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('harina') || norm === 'harina 000' || norm === 'harina comun') {
+    return {
+      canonicalName: 'Harina 000',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('mandioca') || norm.includes('fecula') || norm.includes('almidon')) {
+    return {
+      canonicalName: 'Fécula de mandioca',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('chocolina')) {
+    return {
+      canonicalName: 'Galletitas Chocolinas',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('lincoln')) {
+    return {
+      canonicalName: 'Galletitas Lincoln',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('vainilla') && !norm.includes('esencia')) {
+    return {
+      canonicalName: 'Vainillas',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('azucar impalpable') || norm.includes('glas')) {
+    return {
+      canonicalName: 'Azúcar impalpable',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('azucar') || norm.includes('azucar comun')) {
+    return {
+      canonicalName: 'Azúcar',
+      category: 'harinas_feculas',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  // 3. EGGS (Huevos)
+  if (norm.includes('huevo')) {
+    return {
+      canonicalName: 'Huevos',
+      category: 'huevos',
+      unitType: 'count',
+      standardUnit: 'u',
+    };
+  }
+
+  // 4. FATS & LIQUIDS (Grasas & Líquidos)
+  if (norm.includes('aceite')) {
+    return {
+      canonicalName: 'Aceite de girasol',
+      category: 'grasas_liquidos',
+      unitType: 'volume',
+      standardUnit: 'ml',
+    };
+  }
+
+  if (norm.includes('margarina') || norm.includes('grasa')) {
+    return {
+      canonicalName: 'Margarina',
+      category: 'grasas_liquidos',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('leche') && !norm.includes('dulce')) {
+    return {
+      canonicalName: 'Leche entera',
+      category: 'grasas_liquidos',
+      unitType: 'volume',
+      standardUnit: 'L',
+    };
+  }
+
+  // 5. FRESH & VEGETABLES (Frescos & Verduras)
+  if (norm.includes('espinaca') || norm.includes('acelga')) {
+    return {
+      canonicalName: 'Espinaca congelada',
+      category: 'frescos_verduras',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('cebolla')) {
+    return {
+      canonicalName: 'Cebolla deshidratada',
+      category: 'frescos_verduras',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('salsa') || norm.includes('pure de tomate') || norm.includes('tomate triturado')) {
+    return {
+      canonicalName: 'Salsa de tomate',
+      category: 'frescos_verduras',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('tomate')) {
+    return {
+      canonicalName: 'Tomate fresco',
+      category: 'frescos_verduras',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('morron') || norm.includes('pimiento')) {
+    return {
+      canonicalName: 'Morrón rojo',
+      category: 'frescos_verduras',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('albahaca')) {
+    return {
+      canonicalName: 'Albahaca fresca',
+      category: 'frescos_verduras',
+      unitType: 'count',
+      standardUnit: 'paquetes',
+    };
+  }
+
+  if (norm.includes('frutos rojos') || norm.includes('frutilla') || norm.includes('frambuesa') || norm.includes('arandano')) {
+    return {
+      canonicalName: 'Frutos rojos',
+      category: 'frescos_verduras',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  // 6. SPICES & SEASONINGS (Especias & Condimentos)
+  if (norm.includes('sal') && !norm.includes('salame')) {
+    return {
+      canonicalName: 'Sal fina',
+      category: 'especias_condimentos',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  if (norm.includes('nuez moscada')) {
+    return {
+      canonicalName: 'Nuez moscada',
+      category: 'especias_condimentos',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  if (norm.includes('pimienta blanca')) {
+    return {
+      canonicalName: 'Pimienta blanca',
+      category: 'especias_condimentos',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  if (norm.includes('pimienta')) {
+    return {
+      canonicalName: 'Pimienta blanca',
+      category: 'especias_condimentos',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  if (norm.includes('ajo')) {
+    return {
+      canonicalName: 'Ajo en polvo',
+      category: 'especias_condimentos',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  if (norm.includes('esencia de vainilla') || (norm.includes('esencia') && norm.includes('vainilla'))) {
+    return {
+      canonicalName: 'Esencia de vainilla',
+      category: 'especias_condimentos',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  if (norm.includes('cacao')) {
+    return {
+      canonicalName: 'Cacao amargo',
+      category: 'especias_condimentos',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  // 7. OTHERS (Otros)
+  if (norm.includes('levadura')) {
+    return {
+      canonicalName: 'Levadura fresca',
+      category: 'otros',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('salame')) {
+    return {
+      canonicalName: 'Salame',
+      category: 'otros',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('jamon') || norm.includes('paleta')) {
+    return {
+      canonicalName: 'Jamón cocido',
+      category: 'otros',
+      unitType: 'mass',
+      standardUnit: 'kg',
+    };
+  }
+
+  if (norm.includes('cafe')) {
+    return {
+      canonicalName: 'Café soluble',
+      category: 'otros',
+      unitType: 'mass',
+      standardUnit: 'g',
+    };
+  }
+
+  // Fallback: Clean title casing and determine unitType
+  const cleanName = rawName.trim();
+  const cat = (rawCategory as CanonicalIngredientInfo['category']) || 'otros';
+  const u = (rawUnit || '').toLowerCase().trim();
+
+  let unitType: 'mass' | 'volume' | 'count' = 'mass';
+  let standardUnit = rawUnit || 'g';
+
+  if (['u', 'unidades', 'paquetes', 'docenas', 'bandejas', 'potes', 'cajas'].includes(u)) {
+    unitType = 'count';
+    standardUnit = u === 'paquetes' ? 'paquetes' : 'u';
+  } else if (['l', 'ml', 'litros', 'cc', 'cm3'].includes(u)) {
+    unitType = 'volume';
+    standardUnit = u === 'l' || u === 'litros' ? 'L' : 'ml';
+  } else {
+    unitType = 'mass';
+    standardUnit = u === 'kg' || u === 'kilos' ? 'kg' : 'g';
+  }
+
+  return {
+    canonicalName: cleanName,
+    category: cat,
+    unitType,
+    standardUnit,
+  };
+}
+
 export function consolidateBatches(
   batches: ActiveBatch[],
-  recipes: Recipe[]
+  recipes: Recipe[],
+  masterIngredients?: MasterIngredient[],
+  ingredientCategories?: IngredientCategoryConfig[]
 ): {
   ingredientsByCategory: Record<string, ConsolidatedIngredient[]>;
   packagingList: ConsolidatedPackaging[];
@@ -499,51 +993,96 @@ export function consolidateBatches(
   let totalFreezerFraction = 0;
 
   batches.forEach((batch) => {
-    const recipe = recipeMap.get(batch.recipeId);
+    // Robust recipe resolution: ID match, exact name, or partial match
+    let recipe = recipeMap.get(batch.recipeId);
+    if (!recipe) {
+      const bName = (batch.recipeName || '').toLowerCase().trim();
+      const bId = (batch.recipeId || '').toLowerCase().trim();
+      recipe = recipes.find((r) => {
+        const rName = r.name.toLowerCase().trim();
+        const rId = r.id.toLowerCase().trim();
+        return (
+          rId === bId ||
+          rName === bName ||
+          (bId.includes('pizza') && rId.includes('pizza')) ||
+          (bId.includes('jyq') && rId.includes('jyq')) ||
+          (bId.includes('canelone') && rId.includes('canelone')) ||
+          (bId.includes('choco') && rId.includes('choco')) ||
+          (bId.includes('chipa') && rId.includes('chipa') && !bId.includes('salame') && !rId.includes('salame')) ||
+          (bId.includes('salame') && rId.includes('salame')) ||
+          (bId.includes('verdura') && rId.includes('verdura')) ||
+          (bId.includes('caprese') && rId.includes('caprese')) ||
+          (bId.includes('tiramisu') && rId.includes('tiramisu')) ||
+          (bId.includes('cheesecake') && rId.includes('cheesecake')) ||
+          (bId.includes('tequeno') && rId.includes('tequeno')) ||
+          rName.includes(bName) ||
+          bName.includes(rName)
+        );
+      });
+    }
     if (!recipe) return;
 
     const scaled = scaleRecipe(recipe, batch.targetUnits, batch.selectedAlternativeIds);
     totalProductionHours += scaled.estimatedHours;
     totalLaborPercent += scaled.laborPercent;
 
-    if (batch.status === 'en_freezer' || batch.status === 'elaborando' || batch.status === 'pesando' || batch.status === 'planificado') {
+    if (
+      batch.status === 'en_freezer' || 
+      batch.status === 'elaborando' || 
+      batch.status === 'pesando' || 
+      batch.status === 'planificado' ||
+      batch.status === 'completado'
+    ) {
       totalFreezerFraction += calculateBatchFreezerFraction(recipe, batch.targetUnits);
     }
 
     const formattedDate = batch.scheduledDate ? formatBatchDateShort(batch.scheduledDate) : '';
 
-    // Consolidate ingredients (exclude water)
+    // Consolidate ingredients using canonical normalization (exclude water)
     scaled.ingredients.forEach((ing) => {
       if (ing.name.toLowerCase().trim().startsWith('agua')) return;
-      const key = `${ing.name.toLowerCase().trim()}_${ing.unit || 'g'}`;
+      
+      const canonical = getCanonicalIngredient(ing.name, ing.category, ing.unit, masterIngredients);
+      const key = `${canonical.category}_${canonical.canonicalName.toLowerCase().trim()}_${canonical.unitType}`;
+
       if (!ingredientMap.has(key)) {
         ingredientMap.set(key, {
-          name: ing.name,
-          category: ing.category,
+          name: canonical.canonicalName,
+          category: canonical.category,
           totalGrams: 0,
-          unit: ing.unit || 'g',
+          unit: canonical.standardUnit,
           usedInRecipes: [],
         });
       }
 
       const item = ingredientMap.get(key)!;
       item.totalGrams += ing.scaledGrams;
-      item.usedInRecipes.push({
-        recipeName: recipe.name,
-        amount: ing.scaledGrams,
-        unit: ing.unit || 'g',
-        scheduledDate: batch.scheduledDate,
-        formattedDate,
-        batchId: batch.id,
-      });
+
+      // Merge usage if this batch is already tracked for this ingredient
+      const existingBatchUsage = item.usedInRecipes.find((r) => r.batchId === batch.id);
+      if (existingBatchUsage) {
+        existingBatchUsage.amount += ing.scaledGrams;
+      } else {
+        item.usedInRecipes.push({
+          recipeName: recipe.name,
+          amount: ing.scaledGrams,
+          unit: canonical.standardUnit,
+          scheduledDate: batch.scheduledDate,
+          formattedDate,
+          batchId: batch.id,
+          isBatchCompleted: batch.status === 'completado',
+          batchStatus: batch.status,
+        });
+      }
     });
 
     // Consolidate packaging
     scaled.packaging.forEach((pkg) => {
-      const key = pkg.name.toLowerCase().trim();
+      const cleanPkgName = pkg.name.trim();
+      const key = cleanPkgName.toLowerCase().replace(/\s+/g, ' ');
       if (!packagingMap.has(key)) {
         packagingMap.set(key, {
-          name: pkg.name,
+          name: cleanPkgName,
           type: pkg.type,
           totalCount: 0,
           usedInRecipes: [],
@@ -552,26 +1091,39 @@ export function consolidateBatches(
 
       const item = packagingMap.get(key)!;
       item.totalCount += pkg.scaledCount;
-      item.usedInRecipes.push({
-        recipeName: recipe.name,
-        count: pkg.scaledCount,
-        scheduledDate: batch.scheduledDate,
-        formattedDate,
-        batchId: batch.id,
-      });
+
+      const existingBatchUsage = item.usedInRecipes.find((r) => r.batchId === batch.id);
+      if (existingBatchUsage) {
+        existingBatchUsage.count += pkg.scaledCount;
+      } else {
+        item.usedInRecipes.push({
+          recipeName: recipe.name,
+          count: pkg.scaledCount,
+          scheduledDate: batch.scheduledDate,
+          formattedDate,
+          batchId: batch.id,
+          isBatchCompleted: batch.status === 'completado',
+          batchStatus: batch.status,
+        });
+      }
     });
   });
 
-  // Group ingredients by category
-  const ingredientsByCategory: Record<string, ConsolidatedIngredient[]> = {
-    lacteos: [],
-    harinas_feculas: [],
-    frescos_verduras: [],
-    huevos: [],
-    grasas_liquidos: [],
-    especias_condimentos: [],
-    otros: [],
-  };
+  // Group ingredients by category dynamically
+  const ingredientsByCategory: Record<string, ConsolidatedIngredient[]> = {};
+  if (ingredientCategories && ingredientCategories.length > 0) {
+    ingredientCategories.forEach((c) => {
+      ingredientsByCategory[c.id] = [];
+    });
+  } else {
+    ingredientsByCategory['lacteos'] = [];
+    ingredientsByCategory['harinas_feculas'] = [];
+    ingredientsByCategory['frescos_verduras'] = [];
+    ingredientsByCategory['huevos'] = [];
+    ingredientsByCategory['grasas_liquidos'] = [];
+    ingredientsByCategory['especias_condimentos'] = [];
+    ingredientsByCategory['otros'] = [];
+  }
 
   ingredientMap.forEach((item) => {
     const cat = item.category || 'otros';
@@ -583,7 +1135,7 @@ export function consolidateBatches(
 
   // Sort within categories by name
   Object.keys(ingredientsByCategory).forEach((cat) => {
-    ingredientsByCategory[cat].sort((a, b) => a.name.localeCompare(b.name));
+    ingredientsByCategory[cat].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
   });
 
   // Single-freezer percentage consolidation

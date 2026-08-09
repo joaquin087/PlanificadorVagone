@@ -9,11 +9,16 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { ActiveBatch, Recipe } from '../types';
+import { ActiveBatch, Recipe, MasterIngredient, IngredientCategoryConfig, ProductionCategoryConfig } from '../types';
 import { INITIAL_RECIPES } from '../data/recipesData';
+import { INITIAL_MASTER_INGREDIENTS } from '../data/masterIngredientsData';
+import { DEFAULT_INGREDIENT_CATEGORIES, DEFAULT_PRODUCTION_CATEGORIES } from '../data/categoriesData';
 
 const BATCHES_COLLECTION = 'batches';
 const RECIPES_COLLECTION = 'recipes';
+const MASTER_INGREDIENTS_COLLECTION = 'master_ingredients';
+const INGREDIENT_CATEGORIES_COLLECTION = 'ingredient_categories';
+const PRODUCTION_CATEGORIES_COLLECTION = 'production_categories';
 
 // Helper to remove undefined fields which Firestore rejects
 function sanitizeForFirestore<T extends object>(data: T): Record<string, any> {
@@ -36,7 +41,10 @@ function sanitizeForFirestore<T extends object>(data: T): Record<string, any> {
  */
 export async function initializeFirestoreDefaults(
   localBatches: ActiveBatch[],
-  localRecipes: Recipe[]
+  localRecipes: Recipe[],
+  localMasterIngredients?: MasterIngredient[],
+  localIngredientCategories?: IngredientCategoryConfig[],
+  localProductionCategories?: ProductionCategoryConfig[]
 ): Promise<void> {
   try {
     // Check recipes collection
@@ -65,8 +73,210 @@ export async function initializeFirestoreDefaults(
       await batch.commit();
       console.log('Batches migrated to Firestore successfully.');
     }
+
+    // Check master_ingredients collection
+    const masterSnap = await getDocs(collection(db, MASTER_INGREDIENTS_COLLECTION));
+    if (masterSnap.empty) {
+      console.log('Migrating master ingredients to Firestore...');
+      const itemsToSave = localMasterIngredients && localMasterIngredients.length > 0 ? localMasterIngredients : INITIAL_MASTER_INGREDIENTS;
+      const batch = writeBatch(db);
+      for (const item of itemsToSave) {
+        const ref = doc(db, MASTER_INGREDIENTS_COLLECTION, item.id);
+        batch.set(ref, sanitizeForFirestore(item));
+      }
+      await batch.commit();
+    }
+
+    // Check ingredient_categories collection
+    const ingCatSnap = await getDocs(collection(db, INGREDIENT_CATEGORIES_COLLECTION));
+    if (ingCatSnap.empty) {
+      console.log('Migrating ingredient categories to Firestore...');
+      const catsToSave = localIngredientCategories && localIngredientCategories.length > 0 ? localIngredientCategories : DEFAULT_INGREDIENT_CATEGORIES;
+      const batch = writeBatch(db);
+      for (const cat of catsToSave) {
+        const ref = doc(db, INGREDIENT_CATEGORIES_COLLECTION, cat.id);
+        batch.set(ref, sanitizeForFirestore(cat));
+      }
+      await batch.commit();
+    }
+
+    // Check production_categories collection
+    const prodCatSnap = await getDocs(collection(db, PRODUCTION_CATEGORIES_COLLECTION));
+    if (prodCatSnap.empty) {
+      console.log('Migrating production categories to Firestore...');
+      const pCatsToSave = localProductionCategories && localProductionCategories.length > 0 ? localProductionCategories : DEFAULT_PRODUCTION_CATEGORIES;
+      const batch = writeBatch(db);
+      for (const pCat of pCatsToSave) {
+        const ref = doc(db, PRODUCTION_CATEGORIES_COLLECTION, pCat.id);
+        batch.set(ref, sanitizeForFirestore(pCat));
+      }
+      await batch.commit();
+    }
   } catch (error) {
     console.error('Error initializing Firestore defaults:', error);
+  }
+}
+
+/**
+ * Master Ingredients Firestore Handlers
+ */
+export function subscribeToMasterIngredients(
+  onUpdate: (ingredients: MasterIngredient[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const ref = collection(db, MASTER_INGREDIENTS_COLLECTION);
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      const items: MasterIngredient[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as MasterIngredient);
+      });
+      if (items.length > 0) {
+        items.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+        onUpdate(items);
+      }
+    },
+    (error) => {
+      console.error('Error listening to master ingredients:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+export async function saveMasterIngredientToFirestore(item: MasterIngredient): Promise<void> {
+  try {
+    const ref = doc(db, MASTER_INGREDIENTS_COLLECTION, item.id);
+    await setDoc(ref, sanitizeForFirestore(item), { merge: true });
+  } catch (error) {
+    console.error('Error saving master ingredient to Firestore:', error);
+    throw error;
+  }
+}
+
+export async function deleteMasterIngredientFromFirestore(itemId: string): Promise<void> {
+  try {
+    const ref = doc(db, MASTER_INGREDIENTS_COLLECTION, itemId);
+    await deleteDoc(ref);
+  } catch (error) {
+    console.error('Error deleting master ingredient from Firestore:', error);
+    throw error;
+  }
+}
+
+export async function saveAllMasterIngredientsToFirestore(items: MasterIngredient[]): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    for (const item of items) {
+      const ref = doc(db, MASTER_INGREDIENTS_COLLECTION, item.id);
+      batch.set(ref, sanitizeForFirestore(item));
+    }
+    await batch.commit();
+  } catch (error) {
+    console.error('Error saving all master ingredients to Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Ingredient Categories Firestore Handlers
+ */
+export function subscribeToIngredientCategories(
+  onUpdate: (categories: IngredientCategoryConfig[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const ref = collection(db, INGREDIENT_CATEGORIES_COLLECTION);
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      const items: IngredientCategoryConfig[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as IngredientCategoryConfig);
+      });
+      if (items.length > 0) {
+        items.sort((a, b) => a.order - b.order);
+        onUpdate(items);
+      }
+    },
+    (error) => {
+      console.error('Error listening to ingredient categories:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+export async function saveIngredientCategoryToFirestore(cat: IngredientCategoryConfig): Promise<void> {
+  try {
+    const ref = doc(db, INGREDIENT_CATEGORIES_COLLECTION, cat.id);
+    await setDoc(ref, sanitizeForFirestore(cat), { merge: true });
+  } catch (error) {
+    console.error('Error saving ingredient category to Firestore:', error);
+    throw error;
+  }
+}
+
+export async function saveAllIngredientCategoriesToFirestore(cats: IngredientCategoryConfig[]): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    for (const cat of cats) {
+      const ref = doc(db, INGREDIENT_CATEGORIES_COLLECTION, cat.id);
+      batch.set(ref, sanitizeForFirestore(cat));
+    }
+    await batch.commit();
+  } catch (error) {
+    console.error('Error saving all ingredient categories to Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Production Categories Firestore Handlers
+ */
+export function subscribeToProductionCategories(
+  onUpdate: (categories: ProductionCategoryConfig[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const ref = collection(db, PRODUCTION_CATEGORIES_COLLECTION);
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      const items: ProductionCategoryConfig[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as ProductionCategoryConfig);
+      });
+      if (items.length > 0) {
+        items.sort((a, b) => a.order - b.order);
+        onUpdate(items);
+      }
+    },
+    (error) => {
+      console.error('Error listening to production categories:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+export async function saveProductionCategoryToFirestore(pCat: ProductionCategoryConfig): Promise<void> {
+  try {
+    const ref = doc(db, PRODUCTION_CATEGORIES_COLLECTION, pCat.id);
+    await setDoc(ref, sanitizeForFirestore(pCat), { merge: true });
+  } catch (error) {
+    console.error('Error saving production category to Firestore:', error);
+    throw error;
+  }
+}
+
+export async function saveAllProductionCategoriesToFirestore(pCats: ProductionCategoryConfig[]): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    for (const pCat of pCats) {
+      const ref = doc(db, PRODUCTION_CATEGORIES_COLLECTION, pCat.id);
+      batch.set(ref, sanitizeForFirestore(pCat));
+    }
+    await batch.commit();
+  } catch (error) {
+    console.error('Error saving all production categories to Firestore:', error);
+    throw error;
   }
 }
 
@@ -162,6 +372,19 @@ export async function saveRecipeToFirestore(recipe: Recipe): Promise<void> {
     await setDoc(ref, sanitizeForFirestore(recipe), { merge: true });
   } catch (error) {
     console.error('Error saving recipe to Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete a recipe from Firestore
+ */
+export async function deleteRecipeFromFirestore(recipeId: string): Promise<void> {
+  try {
+    const ref = doc(db, RECIPES_COLLECTION, recipeId);
+    await deleteDoc(ref);
+  } catch (error) {
+    console.error('Error deleting recipe from Firestore:', error);
     throw error;
   }
 }

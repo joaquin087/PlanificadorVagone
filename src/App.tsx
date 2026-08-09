@@ -19,11 +19,24 @@ import {
   ProductionCalendar 
 } from './components/ProductionCalendar';
 import { 
+  MasterCatalogModal 
+} from './components/MasterCatalogModal';
+import { 
   INITIAL_RECIPES 
 } from './data/recipesData';
 import { 
+  INITIAL_MASTER_INGREDIENTS 
+} from './data/masterIngredientsData';
+import { 
+  DEFAULT_INGREDIENT_CATEGORIES, 
+  DEFAULT_PRODUCTION_CATEGORIES 
+} from './data/categoriesData';
+import { 
   Recipe, 
-  ActiveBatch 
+  ActiveBatch,
+  MasterIngredient,
+  IngredientCategoryConfig,
+  ProductionCategoryConfig
 } from './types';
 import { 
   scaleRecipe,
@@ -41,7 +54,18 @@ import {
   deleteBatchFromFirestore,
   subscribeToRecipes,
   saveRecipeToFirestore,
-  resetRecipesInFirestore
+  deleteRecipeFromFirestore,
+  resetRecipesInFirestore,
+  subscribeToMasterIngredients,
+  saveMasterIngredientToFirestore,
+  deleteMasterIngredientFromFirestore,
+  saveAllMasterIngredientsToFirestore,
+  subscribeToIngredientCategories,
+  saveIngredientCategoryToFirestore,
+  saveAllIngredientCategoriesToFirestore,
+  subscribeToProductionCategories,
+  saveProductionCategoryToFirestore,
+  saveAllProductionCategoriesToFirestore
 } from './services/firestoreService';
 import { 
   FileSpreadsheet, 
@@ -52,11 +76,22 @@ import {
   RotateCcw,
   Sparkles,
   Layers,
-  Cloud
+  Cloud,
+  Plus,
+  Trash2,
+  PlusCircle,
+  Pizza,
+  AlertTriangle,
+  ShieldAlert,
+  Loader2,
+  Check
 } from 'lucide-react';
 
 const STORAGE_KEY_BATCHES = 'fabriplan_active_batches_v3';
 const STORAGE_KEY_RECIPES = 'fabriplan_recipes_v3';
+const STORAGE_KEY_MASTER_INGREDIENTS = 'fabriplan_master_ingredients_v1';
+const STORAGE_KEY_INGREDIENT_CATEGORIES = 'fabriplan_ingredient_categories_v1';
+const STORAGE_KEY_PRODUCTION_CATEGORIES = 'fabriplan_production_categories_v1';
 
 export default function App() {
   // Editable Recipes state with LocalStorage and Firestore persistence
@@ -72,6 +107,45 @@ export default function App() {
     return INITIAL_RECIPES;
   });
 
+  // Master Ingredients state (standardized catalog with dropdowns)
+  const [masterIngredients, setMasterIngredients] = useState<MasterIngredient[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_MASTER_INGREDIENTS);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error loading master ingredients from localStorage', e);
+    }
+    return INITIAL_MASTER_INGREDIENTS;
+  });
+
+  // Ingredient Categories (customizable names & icons)
+  const [ingredientCategories, setIngredientCategories] = useState<IngredientCategoryConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_INGREDIENT_CATEGORIES);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error loading ingredient categories from localStorage', e);
+    }
+    return DEFAULT_INGREDIENT_CATEGORIES;
+  });
+
+  // Production Categories (e.g. 'Pasta rellena', 'Pizzas', customizable names)
+  const [productionCategories, setProductionCategories] = useState<ProductionCategoryConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_PRODUCTION_CATEGORIES);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error loading production categories from localStorage', e);
+    }
+    return DEFAULT_PRODUCTION_CATEGORIES;
+  });
+
   // Current Main Navigation Tab (Default to calendar)
   const [currentTab, setCurrentTab] = useState<MainTabType>('calendar');
 
@@ -81,7 +155,11 @@ export default function App() {
   // Modal states
   const [selectedRecipeDetail, setSelectedRecipeDetail] = useState<Recipe | null>(null);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+  const [isCreatingRecipe, setIsCreatingRecipe] = useState<boolean>(false);
   const [planningRecipe, setPlanningRecipe] = useState<Recipe | null>(null);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
+  const [isResettingRecipes, setIsResettingRecipes] = useState<boolean>(false);
+  const [showMasterCatalogModal, setShowMasterCatalogModal] = useState<boolean>(false);
 
   // Active production batches in state & local storage
   const [activeBatches, setActiveBatches] = useState<ActiveBatch[]>(() => {
@@ -184,7 +262,7 @@ export default function App() {
   // Real-time Firestore synchronization across all devices
   useEffect(() => {
     // 1. Initialize Firestore collections if empty
-    initializeFirestoreDefaults(activeBatches, recipes);
+    initializeFirestoreDefaults(activeBatches, recipes, masterIngredients, ingredientCategories, productionCategories);
 
     // 2. Real-time listener for batches (syncs updates from any device)
     const unsubBatches = subscribeToBatches(
@@ -212,9 +290,51 @@ export default function App() {
       }
     );
 
+    // 4. Real-time listener for master ingredients
+    const unsubMaster = subscribeToMasterIngredients(
+      (cloudMaster) => {
+        if (cloudMaster && cloudMaster.length > 0) {
+          setMasterIngredients(cloudMaster);
+        }
+        setIsCloudSynced(true);
+      },
+      (err) => {
+        console.warn('Firestore master ingredients sync notice:', err);
+      }
+    );
+
+    // 5. Real-time listener for ingredient categories
+    const unsubIngCats = subscribeToIngredientCategories(
+      (cloudIngCats) => {
+        if (cloudIngCats && cloudIngCats.length > 0) {
+          setIngredientCategories(cloudIngCats);
+        }
+        setIsCloudSynced(true);
+      },
+      (err) => {
+        console.warn('Firestore ingredient categories sync notice:', err);
+      }
+    );
+
+    // 6. Real-time listener for production categories
+    const unsubProdCats = subscribeToProductionCategories(
+      (cloudProdCats) => {
+        if (cloudProdCats && cloudProdCats.length > 0) {
+          setProductionCategories(cloudProdCats);
+        }
+        setIsCloudSynced(true);
+      },
+      (err) => {
+        console.warn('Firestore production categories sync notice:', err);
+      }
+    );
+
     return () => {
       unsubBatches();
       unsubRecipes();
+      unsubMaster();
+      unsubIngCats();
+      unsubProdCats();
     };
   }, []);
 
@@ -235,6 +355,33 @@ export default function App() {
       console.error('Error saving recipes', e);
     }
   }, [recipes]);
+
+  // Save master ingredients to localStorage as instant cache
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_MASTER_INGREDIENTS, JSON.stringify(masterIngredients));
+    } catch (e) {
+      console.error('Error saving master ingredients', e);
+    }
+  }, [masterIngredients]);
+
+  // Save ingredient categories to localStorage as instant cache
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_INGREDIENT_CATEGORIES, JSON.stringify(ingredientCategories));
+    } catch (e) {
+      console.error('Error saving ingredient categories', e);
+    }
+  }, [ingredientCategories]);
+
+  // Save production categories to localStorage as instant cache
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_PRODUCTION_CATEGORIES, JSON.stringify(productionCategories));
+    } catch (e) {
+      console.error('Error saving production categories', e);
+    }
+  }, [productionCategories]);
 
   // Compute live freezer occupancy
   let totalF1Trays = 0;
@@ -313,14 +460,84 @@ export default function App() {
     }
   };
 
-  // Recipe editing handlers
+  // Recipe editing and creation handlers
+  const handleOpenNewRecipeModal = () => {
+    const newRecipeTemplate: Recipe = {
+      id: `recipe-pizza-${Date.now()}`,
+      name: 'Pizzas / Pre-pizzas Caseras',
+      category: 'pizzas',
+      subtitle: 'Rendimiento base: 500 pre-pizzas (Masa fermentada a la piedra con salsa)',
+      baseYieldUnits: 500,
+      yieldUnitName: 'unidades',
+      baseMinutes: 420,
+      prepMinutes: 30,
+      baseHours: 7.0,
+      color: 'from-amber-600 to-red-600',
+      badgeBg: 'bg-amber-100 border-amber-300 text-amber-900',
+      badgeText: 'Pizzas & Pre-pizzas',
+      freezerRule: {
+        f1Percent: 100,
+        f1TraysOccupied: 100,
+        f1MaxTrays: 100,
+        f2Percent: 0,
+        f2TraysOccupied: 0,
+        f2MaxTrays: 100,
+        f1TraysText: '100%',
+        f2TraysText: 'Libre',
+        ruleNotes: 'Ultracongelación en bandejas de 10 unidades o apiladas con folex.',
+      },
+      ingredients: [
+        { id: `ing-${Date.now()}-1`, name: 'Harina 000', amountGrams: 50000, unit: 'kg', category: 'harinas_feculas', notes: 'Harina de fuerza' },
+        { id: `ing-${Date.now()}-2`, name: 'Agua', amountGrams: 30000, unit: 'kg', category: 'grasas_liquidos' },
+        { id: `ing-${Date.now()}-3`, name: 'Muzzarella', amountGrams: 25000, unit: 'kg', category: 'lacteos', notes: 'Rallada o en trozos' },
+        { id: `ing-${Date.now()}-4`, name: 'Salsa de Tomate / Puré', amountGrams: 15000, unit: 'kg', category: 'frescos_verduras' },
+        { id: `ing-${Date.now()}-5`, name: 'Aceite de Girasol', amountGrams: 2000, unit: 'kg', category: 'grasas_liquidos' },
+        { id: `ing-${Date.now()}-6`, name: 'Levadura Fresca', amountGrams: 1500, unit: 'kg', category: 'otros' },
+        { id: `ing-${Date.now()}-7`, name: 'Sal Fina', amountGrams: 1000, unit: 'kg', category: 'especias_condimentos' },
+      ],
+      packaging: [
+        { id: `pkg-${Date.now()}-1`, name: 'Bolsas para Pizza / Film', type: 'bolsa', baseQuantity: 500, description: 'Bolsa transparente para envasado al vacío o film' },
+        { id: `pkg-${Date.now()}-2`, name: 'Etiquetas Pizza', type: 'etiqueta', baseQuantity: 500, description: 'Etiqueta con lote y vencimiento' },
+      ],
+      presentationOptions: [
+        {
+          id: 'pizza-pack-base',
+          label: 'Unidades individuales envasadas',
+          unitsPerPack: 1,
+          basePacksCount: 500,
+          packagingDescription: '500 pre-pizzas envasadas',
+        }
+      ],
+      operationalNotes: [
+        'Fermentación en bloque y bollo individual.',
+        'Estirado en mesada con sémola y precocción rápida a la piedra.',
+        'Pintado con salsa, queso muzzarella y ultracongelado rápido.',
+      ],
+      preparationSteps: [
+        'Pesar harina, agua, levadura, aceite y sal.',
+        'Amasar hasta lograr masa suave y elástica. Dejar reposar.',
+        'Porcionar en bollos de 200-250g y bollar.',
+        'Estirar, salsar y precocinar en horno.',
+        'Colocar muzzarella, enfriar y llevar al freezer de ultracongelación.',
+      ]
+    };
+    setIsCreatingRecipe(true);
+    setEditingRecipe(newRecipeTemplate);
+  };
+
   const handleSaveRecipe = async (updatedRecipe: Recipe) => {
-    setRecipes((prev) =>
-      prev.map((r) => (r.id === updatedRecipe.id ? updatedRecipe : r))
-    );
+    setRecipes((prev) => {
+      const exists = prev.some((r) => r.id === updatedRecipe.id);
+      if (exists) {
+        return prev.map((r) => (r.id === updatedRecipe.id ? updatedRecipe : r));
+      }
+      return [...prev, updatedRecipe];
+    });
     if (selectedRecipeDetail?.id === updatedRecipe.id) {
       setSelectedRecipeDetail(updatedRecipe);
     }
+    setEditingRecipe(null);
+    setIsCreatingRecipe(false);
     try {
       await saveRecipeToFirestore(updatedRecipe);
       setIsCloudSynced(true);
@@ -329,16 +546,196 @@ export default function App() {
     }
   };
 
-  const handleResetRecipes = async () => {
-    if (window.confirm('¿Deseas restaurar todas las recetas a las fórmulas originales de fábrica? Se perderán las modificaciones personalizadas.')) {
-      setRecipes(INITIAL_RECIPES);
+  const handleDeleteRecipe = async (recipe: Recipe) => {
+    if (window.confirm(`¿Estás seguro de eliminar la receta "${recipe.name}"? Esta acción removerá el producto de las fichas técnicas.`)) {
+      setRecipes((prev) => prev.filter((r) => r.id !== recipe.id));
+      if (selectedRecipeDetail?.id === recipe.id) {
+        setSelectedRecipeDetail(null);
+      }
       try {
-        localStorage.removeItem(STORAGE_KEY_RECIPES);
-        await resetRecipesInFirestore();
+        await deleteRecipeFromFirestore(recipe.id);
         setIsCloudSynced(true);
       } catch (e) {
-        console.error('Error resetting recipes in cloud:', e);
+        console.error('Error deleting recipe from cloud:', e);
       }
+    }
+  };
+
+  const handleConfirmResetRecipes = async () => {
+    setIsResettingRecipes(true);
+    try {
+      setRecipes(INITIAL_RECIPES);
+      localStorage.removeItem(STORAGE_KEY_RECIPES);
+      await resetRecipesInFirestore();
+      setIsCloudSynced(true);
+      setShowResetConfirmModal(false);
+    } catch (e) {
+      console.error('Error resetting recipes in cloud:', e);
+    } finally {
+      setIsResettingRecipes(false);
+    }
+  };
+
+  // Master Ingredients & Categories Handlers
+  const handleSaveMasterIngredient = async (item: MasterIngredient) => {
+    setMasterIngredients((prev) => {
+      const idx = prev.findIndex((i) => i.id === item.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = item;
+        return next;
+      }
+      return [...prev, item];
+    });
+
+    // Synchronize recipe ingredients with updated category/unit
+    setRecipes((prevRecipes) => {
+      let modified = false;
+      const nextRecipes = prevRecipes.map((r) => {
+        const hasMatch = r.ingredients.some(
+          (ing) => ing.name.toLowerCase().trim() === item.name.toLowerCase().trim()
+        );
+        if (!hasMatch) return r;
+        modified = true;
+        return {
+          ...r,
+          ingredients: r.ingredients.map((ing) => {
+            if (ing.name.toLowerCase().trim() === item.name.toLowerCase().trim()) {
+              return {
+                ...ing,
+                category: item.categoryId,
+                unit: ing.unit || item.defaultUnit,
+              };
+            }
+            return ing;
+          }),
+        };
+      });
+
+      if (modified) {
+        try {
+          localStorage.setItem(STORAGE_KEY_RECIPES, JSON.stringify(nextRecipes));
+          nextRecipes.forEach((r) => saveRecipeToFirestore(r).catch(console.error));
+        } catch (e) {
+          console.error(e);
+        }
+        return nextRecipes;
+      }
+      return prevRecipes;
+    });
+
+    try {
+      await saveMasterIngredientToFirestore(item);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error saving master ingredient to cloud:', e);
+    }
+  };
+
+  const handleDeleteMasterIngredient = async (itemId: string) => {
+    setMasterIngredients((prev) => prev.filter((i) => i.id !== itemId));
+    try {
+      await deleteMasterIngredientFromFirestore(itemId);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error deleting master ingredient from cloud:', e);
+    }
+  };
+
+  const handleSaveAllMasterIngredients = async (items: MasterIngredient[]) => {
+    setMasterIngredients(items);
+
+    // Synchronize recipes with the entire updated catalog
+    setRecipes((prevRecipes) => {
+      const masterMap = new Map(items.map((m) => [m.name.toLowerCase().trim(), m]));
+      let modified = false;
+      const nextRecipes = prevRecipes.map((r) => {
+        let rModified = false;
+        const updatedIngredients = r.ingredients.map((ing) => {
+          const master = masterMap.get(ing.name.toLowerCase().trim());
+          if (master && master.categoryId !== ing.category) {
+            rModified = true;
+            return {
+              ...ing,
+              category: master.categoryId,
+            };
+          }
+          return ing;
+        });
+        if (rModified) {
+          modified = true;
+          return { ...r, ingredients: updatedIngredients };
+        }
+        return r;
+      });
+
+      if (modified) {
+        try {
+          localStorage.setItem(STORAGE_KEY_RECIPES, JSON.stringify(nextRecipes));
+          nextRecipes.forEach((r) => saveRecipeToFirestore(r).catch(console.error));
+        } catch (e) {
+          console.error(e);
+        }
+        return nextRecipes;
+      }
+      return prevRecipes;
+    });
+
+    try {
+      await saveAllMasterIngredientsToFirestore(items);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error saving all master ingredients to cloud:', e);
+    }
+  };
+
+  const handleSaveIngredientCategory = async (cat: IngredientCategoryConfig) => {
+    setIngredientCategories((prev) => {
+      const idx = prev.findIndex((c) => c.id === cat.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = cat;
+        return next;
+      }
+      return [...prev, cat];
+    });
+    try {
+      await saveIngredientCategoryToFirestore(cat);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error saving ingredient category to cloud:', e);
+    }
+  };
+
+  const handleSaveProductionCategory = async (pCat: ProductionCategoryConfig) => {
+    setProductionCategories((prev) => {
+      const idx = prev.findIndex((c) => c.id === pCat.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = pCat;
+        return next;
+      }
+      return [...prev, pCat];
+    });
+    try {
+      await saveProductionCategoryToFirestore(pCat);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error saving production category to cloud:', e);
+    }
+  };
+
+  const handleResetMasterCatalog = async () => {
+    setMasterIngredients(INITIAL_MASTER_INGREDIENTS);
+    setIngredientCategories(DEFAULT_INGREDIENT_CATEGORIES);
+    setProductionCategories(DEFAULT_PRODUCTION_CATEGORIES);
+    try {
+      await saveAllMasterIngredientsToFirestore(INITIAL_MASTER_INGREDIENTS);
+      await saveAllIngredientCategoriesToFirestore(DEFAULT_INGREDIENT_CATEGORIES);
+      await saveAllProductionCategoriesToFirestore(DEFAULT_PRODUCTION_CATEGORIES);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error resetting master catalog in cloud:', e);
     }
   };
 
@@ -352,6 +749,7 @@ export default function App() {
         f1Percent={f1Percent}
         f2Percent={f2Percent}
         onOpenQuickBatch={() => setPlanningRecipe(recipes[0])}
+        onOpenMasterCatalog={() => setShowMasterCatalogModal(true)}
         isCloudSynced={isCloudSynced}
       />
 
@@ -374,7 +772,7 @@ export default function App() {
         {currentTab === 'recipes' && (
           <div className="space-y-6 pb-12">
             {/* Header Banner */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
@@ -385,26 +783,49 @@ export default function App() {
                   </h1>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Consulta y edita los insumos, rendimiento base (100%), horas de producción y ocupación de freezers de cada producto.
+                  Consulta, crea y edita los insumos estandarizados, rendimiento base (100%), horas de producción y ocupación de freezers.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Master Catalog Management Trigger */}
                 <button
-                  onClick={handleResetRecipes}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors border border-slate-200"
-                  title="Restaurar recetas originales"
+                  onClick={() => setShowMasterCatalogModal(true)}
+                  className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  title="Administrar Catálogo Maestro de Insumos y Categorías"
+                >
+                  <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Catálogo de Insumos & Categorías</span>
+                </button>
+
+                {/* Security Confirmation Trigger for Resetting Formulas */}
+                <button
+                  onClick={() => setShowResetConfirmModal(true)}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors border border-slate-200 cursor-pointer"
+                  title="Restaurar todas las recetas a las cantidades y fórmulas estándar de fábrica"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Restaurar Fórmulas</span>
                 </button>
 
+                {/* Primary Button 1: Add New Recipe / Ficha Técnica */}
                 <button
-                  onClick={() => setPlanningRecipe(recipes[0])}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95"
+                  onClick={handleOpenNewRecipeModal}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  title="Crear una nueva receta o ficha técnica"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Agregar Receta</span>
+                </button>
+
+                {/* Primary Button 2: Add New Production to Schedule */}
+                <button
+                  onClick={() => setPlanningRecipe(recipes[0] || null)}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  title="Programar una nueva tanda de producción en el calendario"
                 >
                   <CalendarDays className="w-4 h-4" />
-                  <span>Planificar Producción</span>
+                  <span>Programar Producción</span>
                 </button>
               </div>
             </div>
@@ -454,6 +875,19 @@ export default function App() {
                           F1: {recipe.freezerRule.f1Percent}% {recipe.freezerRule.f2Percent > 0 && `| F2: ${recipe.freezerRule.f2Percent}%`}
                         </span>
                       </div>
+
+                      <div className="col-span-2 pt-1 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+                        <span className="text-slate-500 font-medium">Logística de Empaque:</span>
+                        <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                          recipe.requiresNextDayPackaging
+                            ? 'bg-indigo-100 text-indigo-900'
+                            : 'bg-emerald-100 text-emerald-900'
+                        }`}>
+                          {recipe.requiresNextDayPackaging
+                            ? `❄️ Día siguiente (~${recipe.nextDayPackagingMinutes || 35}m)`
+                            : '📦 Misma producción'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Quick Ingredients preview */}
@@ -487,11 +921,22 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setEditingRecipe(recipe)}
+                      onClick={() => {
+                        setIsCreatingRecipe(false);
+                        setEditingRecipe(recipe);
+                      }}
                       className="p-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
                       title="Editar receta, insumos y freezers"
                     >
                       <Edit3 className="w-4 h-4 text-amber-600" />
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteRecipe(recipe)}
+                      className="p-2 text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 rounded-xl transition-colors"
+                      title="Eliminar receta"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </button>
 
                     <button
@@ -514,6 +959,8 @@ export default function App() {
           <ShoppingListConsolidator
             recipes={recipes}
             activeBatches={activeBatches}
+            masterIngredients={masterIngredients}
+            ingredientCategories={ingredientCategories}
             onUpdateBatchStatus={handleUpdateBatchStatus}
             onNavigateTab={(tab) => setCurrentTab(tab as MainTabType)}
           />
@@ -527,6 +974,7 @@ export default function App() {
           onClose={() => setSelectedRecipeDetail(null)}
           onEditRecipe={(r) => {
             setSelectedRecipeDetail(null);
+            setIsCreatingRecipe(false);
             setEditingRecipe(r);
           }}
           onAddToPlanner={(r) => {
@@ -540,8 +988,34 @@ export default function App() {
       {editingRecipe && (
         <RecipeEditModal
           recipe={editingRecipe}
-          onClose={() => setEditingRecipe(null)}
+          isNew={isCreatingRecipe}
+          masterIngredients={masterIngredients}
+          ingredientCategories={ingredientCategories}
+          productionCategories={productionCategories}
+          onAddNewMasterIngredient={handleSaveMasterIngredient}
+          onClose={() => {
+            setEditingRecipe(null);
+            setIsCreatingRecipe(false);
+          }}
           onSave={handleSaveRecipe}
+        />
+      )}
+
+      {/* MODAL: Master Catalog & Categories Modal */}
+      {showMasterCatalogModal && (
+        <MasterCatalogModal
+          isOpen={showMasterCatalogModal}
+          masterIngredients={masterIngredients}
+          ingredientCategories={ingredientCategories}
+          productionCategories={productionCategories}
+          recipes={recipes}
+          onSaveIngredient={handleSaveMasterIngredient}
+          onDeleteIngredient={handleDeleteMasterIngredient}
+          onSaveAllIngredients={handleSaveAllMasterIngredients}
+          onSaveIngredientCategory={handleSaveIngredientCategory}
+          onSaveProductionCategory={handleSaveProductionCategory}
+          onResetToDefaults={handleResetMasterCatalog}
+          onClose={() => setShowMasterCatalogModal(false)}
         />
       )}
 
@@ -554,6 +1028,75 @@ export default function App() {
           onAddBatch={handleAddBatch}
           onNavigateToCalendar={() => setCurrentTab('calendar')}
         />
+      )}
+
+      {/* MODAL: Security Confirmation for Resetting Formulas */}
+      {showResetConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            {/* Warning Icon & Header */}
+            <div className="flex items-start gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 leading-snug">
+                  ¿Restaurar Fórmulas de Fábrica?
+                </h3>
+                <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full inline-block mt-1">
+                  Confirmación de Seguridad
+                </span>
+              </div>
+            </div>
+
+            {/* Explanation of consequences */}
+            <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 space-y-2 text-xs text-amber-950 leading-relaxed">
+              <p className="font-semibold text-slate-900">
+                ⚠️ <strong>Esta acción restablecerá todas las recetas a las cantidades y fórmulas estándar originales de fábrica.</strong>
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-slate-700 text-[11.5px]">
+                <li>Se sobreescribirán los cambios o proporciones personalizadas que hayas modificado en los insumos.</li>
+                <li>Se volverán a cargar las fichas técnicas por defecto (chipa, canelones, sorrentinos, tequeños, etc.).</li>
+                <li>Las producciones ya programadas en el calendario conservarán sus datos agendados.</li>
+              </ul>
+            </div>
+
+            <p className="text-xs text-slate-500 font-medium">
+              Por favor confirma si de verdad deseas restaurar las cantidades a los valores por defecto o si fue solo un miss-click.
+            </p>
+
+            {/* Action Buttons */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirmModal(false)}
+                disabled={isResettingRecipes}
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer border border-slate-200"
+              >
+                Cancelar (Mantener mis recetas)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmResetRecipes}
+                disabled={isResettingRecipes}
+                className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition-all shadow-md active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                {isResettingRecipes ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Restaurando fórmulas...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Sí, Restaurar Valores por Defecto</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

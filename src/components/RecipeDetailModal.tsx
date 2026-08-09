@@ -230,10 +230,21 @@ export const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({
 
             {/* Packaging consumables */}
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
-              <h4 className="text-xs font-bold text-slate-900 mb-2 flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-slate-600" />
-                Insumos de Empaque / Descartables
-              </h4>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-slate-600" />
+                  Insumos de Empaque / Descartables
+                </h4>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                  recipe.requiresNextDayPackaging
+                    ? 'bg-indigo-50 text-indigo-900 border-indigo-200'
+                    : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                }`}>
+                  {recipe.requiresNextDayPackaging
+                    ? `❄️ Empaque día siguiente (~${recipe.nextDayPackagingMinutes || 35} min)`
+                    : '📦 Empaque en misma producción'}
+                </span>
+              </div>
               <ul className="space-y-2 text-xs text-slate-700">
                 {recipe.packaging.map((pkg) => (
                   <li key={pkg.id} className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between">

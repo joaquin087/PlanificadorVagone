@@ -7,7 +7,8 @@ import {
   FileSpreadsheet,
   Plus,
   Cloud,
-  CloudCheck
+  Database,
+  Layers
 } from 'lucide-react';
 import { ActiveBatch } from '../types';
 
@@ -20,6 +21,7 @@ interface NavbarProps {
   f1Percent: number;
   f2Percent: number;
   onOpenQuickBatch: () => void;
+  onOpenMasterCatalog?: () => void;
   isCloudSynced?: boolean;
 }
 
@@ -30,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   f1Percent,
   f2Percent,
   onOpenQuickBatch,
+  onOpenMasterCatalog,
   isCloudSynced = true,
 }) => {
   return (
@@ -121,6 +124,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Master Catalog & Categories Button */}
+            {onOpenMasterCatalog && (
+              <button
+                onClick={onOpenMasterCatalog}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-amber-300 transition-colors"
+                title="Administrar Catálogo Maestro de Insumos y Categorías de Fábrica"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                <span>Catálogo e Insumos</span>
+              </button>
+            )}
 
             {/* Active Batches Indicator */}
             <button

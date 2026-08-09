@@ -1,5 +1,5 @@
 import { ActiveBatch, Recipe, ConsolidatedIngredient, ConsolidatedPackaging } from '../types';
-import { scaleRecipe, calculateBatchFreezerFraction, formatDuration, formatHoursToDuration } from './calculations';
+import { scaleRecipe, calculateBatchFreezerFraction, formatDuration, formatHoursToDuration, getCanonicalIngredient } from './calculations';
 
 export interface DaySchedule {
   dateStr: string; // YYYY-MM-DD
@@ -118,25 +118,92 @@ export function formatBatchLabelWithDate(recipeName: string, dateStr?: string): 
 /**
  * Checks if a recipe requires next-day packaging after freezing
  * Pastas, Chipas, and Tequeños are frozen on the day of production and packaged the next day.
- * Postres (individual pots) and Canelones (ready-to-pack plastic trays) do NOT require next-day packaging.
+ * Postres (individual pots), Pizzas, and Canelones (ready-to-pack trays) do NOT require next-day packaging.
  */
 export function isPackagingRequired(recipe?: Recipe): boolean {
   if (!recipe) return false;
+  if (typeof recipe.requiresNextDayPackaging === 'boolean') {
+    return recipe.requiresNextDayPackaging;
+  }
   if (recipe.category === 'postres') return false;
   if (recipe.category === 'canelones' || recipe.id === 'canelones') return false;
+  if (recipe.category === 'pizzas' || recipe.id.includes('pizza')) return false;
   return true;
 }
 
 /**
- * Returns Monday of the week for any given date
+ * Returns Monday of the week for any given date.
+ * With Sunday as the first day of the week (day 0), Sunday belongs to the upcoming
+ * work week (Monday-Friday), so on Sunday it automatically navigates to the new week.
  */
 export function getMondayOfWeek(d: Date): Date {
   const date = new Date(d);
   const day = date.getDay(); // 0 is Sunday, 1 is Monday...
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is Sunday
+  const diff = date.getDate() - day + 1; // When Sunday is day 0, Monday of that week is +1 day
   const monday = new Date(date.setDate(diff));
   monday.setHours(0, 0, 0, 0);
   return monday;
+}
+
+export interface WeekBounds {
+  monday: Date;
+  sunday: Date;
+  mondayISO: string;
+  sundayISO: string;
+  label: string;
+}
+
+/**
+ * Returns the bounds (Monday to Sunday) for the current week.
+ */
+export function getThisWeekBounds(refDate: Date = new Date()): WeekBounds {
+  const monday = getMondayOfWeek(refDate);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  
+  const mondayISO = formatDateToISO(monday);
+  const sundayISO = formatDateToISO(sunday);
+
+  const mDay = String(monday.getDate()).padStart(2, '0');
+  const mMonth = String(monday.getMonth() + 1).padStart(2, '0');
+  const sDay = String(sunday.getDate()).padStart(2, '0');
+  const sMonth = String(sunday.getMonth() + 1).padStart(2, '0');
+
+  return {
+    monday,
+    sunday,
+    mondayISO,
+    sundayISO,
+    label: `${mDay}/${mMonth} al ${sDay}/${sMonth}`,
+  };
+}
+
+/**
+ * Returns the bounds (Monday to Sunday) for next week.
+ */
+export function getNextWeekBounds(refDate: Date = new Date()): WeekBounds {
+  const thisWeek = getThisWeekBounds(refDate);
+  const nextMonday = new Date(thisWeek.monday);
+  nextMonday.setDate(thisWeek.monday.getDate() + 7);
+  
+  const nextSunday = new Date(nextMonday);
+  nextSunday.setDate(nextMonday.getDate() + 6);
+
+  const mondayISO = formatDateToISO(nextMonday);
+  const sundayISO = formatDateToISO(nextSunday);
+
+  const mDay = String(nextMonday.getDate()).padStart(2, '0');
+  const mMonth = String(nextMonday.getMonth() + 1).padStart(2, '0');
+  const sDay = String(nextSunday.getDate()).padStart(2, '0');
+  const sMonth = String(nextSunday.getMonth() + 1).padStart(2, '0');
+
+  return {
+    monday: nextMonday,
+    sunday: nextSunday,
+    mondayISO,
+    sundayISO,
+    label: `${mDay}/${mMonth} al ${sDay}/${sMonth}`,
+  };
 }
 
 /**
@@ -217,7 +284,17 @@ export function getWeekDays(
     }
 
     const hasPreviousDayPackaging = prevDayBatches.length > 0;
-    const packagingReservedMinutes = hasPreviousDayPackaging ? 35 : 0;
+    let packagingReservedMinutes = 0;
+    if (hasPreviousDayPackaging) {
+      const minutesList = prevDayBatches.map((b) => {
+        const rec = recipeMap.get(b.recipeId);
+        if (rec && typeof rec.nextDayPackagingMinutes === 'number' && rec.nextDayPackagingMinutes > 0) {
+          return rec.nextDayPackagingMinutes;
+        }
+        return 35;
+      });
+      packagingReservedMinutes = minutesList.length > 0 ? Math.max(...minutesList) : 35;
+    }
     const packagingReservedHours = Math.round((packagingReservedMinutes / 60) * 10) / 10;
     const packagingPercent = Math.round((packagingReservedMinutes / 480) * 100);
 
@@ -381,38 +458,48 @@ export function getConsolidatedInsumosForBatches(
 
     const formattedDate = batch.scheduledDate ? formatBatchDateShort(batch.scheduledDate) : '';
 
-    // Consolidate ingredients (exclude water)
+    // Consolidate ingredients using canonical normalization (exclude water)
     scaled.ingredients.forEach((ing) => {
       if (ing.name.toLowerCase().trim().startsWith('agua')) return;
-      const key = `${ing.name.toLowerCase().trim()}_${ing.unit || 'g'}`;
+      
+      const canonical = getCanonicalIngredient(ing.name, ing.category, ing.unit);
+      const key = `${canonical.category}_${canonical.canonicalName.toLowerCase().trim()}_${canonical.unitType}`;
+
       if (!ingredientMap.has(key)) {
         ingredientMap.set(key, {
-          name: ing.name,
-          category: ing.category,
+          name: canonical.canonicalName,
+          category: canonical.category,
           totalGrams: 0,
-          unit: ing.unit || 'g',
+          unit: canonical.standardUnit,
           usedInRecipes: [],
         });
       }
 
       const item = ingredientMap.get(key)!;
       item.totalGrams += ing.scaledGrams;
-      item.usedInRecipes.push({
-        recipeName: recipe.name,
-        amount: ing.scaledGrams,
-        unit: ing.unit || 'g',
-        scheduledDate: batch.scheduledDate,
-        formattedDate,
-        batchId: batch.id,
-      });
+
+      const existingBatchUsage = item.usedInRecipes.find((r) => r.batchId === batch.id);
+      if (existingBatchUsage) {
+        existingBatchUsage.amount += ing.scaledGrams;
+      } else {
+        item.usedInRecipes.push({
+          recipeName: recipe.name,
+          amount: ing.scaledGrams,
+          unit: canonical.standardUnit,
+          scheduledDate: batch.scheduledDate,
+          formattedDate,
+          batchId: batch.id,
+        });
+      }
     });
 
     // Consolidate packaging
     scaled.packaging.forEach((pkg) => {
-      const key = pkg.name.toLowerCase().trim();
+      const cleanPkgName = pkg.name.trim();
+      const key = cleanPkgName.toLowerCase().replace(/\s+/g, ' ');
       if (!packagingMap.has(key)) {
         packagingMap.set(key, {
-          name: pkg.name,
+          name: cleanPkgName,
           type: pkg.type,
           totalCount: 0,
           usedInRecipes: [],
@@ -421,13 +508,19 @@ export function getConsolidatedInsumosForBatches(
 
       const item = packagingMap.get(key)!;
       item.totalCount += pkg.scaledCount;
-      item.usedInRecipes.push({
-        recipeName: recipe.name,
-        count: pkg.scaledCount,
-        scheduledDate: batch.scheduledDate,
-        formattedDate,
-        batchId: batch.id,
-      });
+
+      const existingBatchUsage = item.usedInRecipes.find((r) => r.batchId === batch.id);
+      if (existingBatchUsage) {
+        existingBatchUsage.count += pkg.scaledCount;
+      } else {
+        item.usedInRecipes.push({
+          recipeName: recipe.name,
+          count: pkg.scaledCount,
+          scheduledDate: batch.scheduledDate,
+          formattedDate,
+          batchId: batch.id,
+        });
+      }
     });
   });
 

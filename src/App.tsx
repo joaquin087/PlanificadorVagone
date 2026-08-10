@@ -100,6 +100,7 @@ const STORAGE_KEY_PRODUCTION_CATEGORIES = 'fabriplan_production_categories_v1';
 const STORAGE_KEY_CHECKED = 'fabriplan_shopping_checked_items_v3';
 const STORAGE_KEY_FACTORY_STOCK = 'fabriplan_shopping_factory_stock_v3';
 const STORAGE_KEY_WEEKLY_STOCK = 'fabriplan_weekly_stock_items';
+const STORAGE_KEY_DISMISSED_PACKAGING = 'vagone_dismissed_packaging_dates';
 
 export default function App() {
   // Editable Recipes state with LocalStorage and Firestore persistence
@@ -191,6 +192,41 @@ export default function App() {
       return {};
     }
   });
+
+  // Next-day packaging dismissed dates state (e.g. { "2026-08-10": true })
+  const [dismissedPackagingDates, setDismissedPackagingDates] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_DISMISSED_PACKAGING);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleDismissPackaging = (dateStr: string) => {
+    setDismissedPackagingDates((prev) => {
+      const next = { ...prev, [dateStr]: true };
+      try {
+        localStorage.setItem(STORAGE_KEY_DISMISSED_PACKAGING, JSON.stringify(next));
+      } catch (e) {
+        console.error('Error saving dismissed packaging dates', e);
+      }
+      return next;
+    });
+  };
+
+  const handleRestorePackaging = (dateStr: string) => {
+    setDismissedPackagingDates((prev) => {
+      const next = { ...prev };
+      delete next[dateStr];
+      try {
+        localStorage.setItem(STORAGE_KEY_DISMISSED_PACKAGING, JSON.stringify(next));
+      } catch (e) {
+        console.error('Error saving dismissed packaging dates', e);
+      }
+      return next;
+    });
+  };
 
   // Current Main Navigation Tab (Default to calendar)
   const [currentTab, setCurrentTab] = useState<MainTabType>('calendar');
@@ -1142,6 +1178,9 @@ export default function App() {
             recipes={recipes}
             activeBatches={activeBatches}
             checkedItems={checkedItems}
+            dismissedPackagingDates={dismissedPackagingDates}
+            onDismissPackaging={handleDismissPackaging}
+            onRestorePackaging={handleRestorePackaging}
             onToggleCheckItem={handleToggleCheckItem}
             onMarkAllInStock={handleMarkAllInStock}
             onClearAllStock={handleClearAllStock}

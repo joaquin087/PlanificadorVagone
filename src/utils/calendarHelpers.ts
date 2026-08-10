@@ -19,6 +19,8 @@ export interface DaySchedule {
   totalUnits: number;
 
   // Next-Day Packaging Reservation (Pastas, Chipas, Tequeños get packaged the following day)
+  rawHasPreviousDayPackaging: boolean; // whether batches from previous workday required packaging
+  isPackagingDismissed: boolean; // whether packaging was dismissed by user for this day
   hasPreviousDayPackaging: boolean;
   previousDayPackagingBatches: { recipeName: string; units: number; dateStr: string }[];
   packagingReservedMinutes: number; // 35 min if true, 0 if false
@@ -214,7 +216,8 @@ export function getWeekDays(
   baseMonday: Date,
   includeSaturday: boolean = false,
   activeBatches: ActiveBatch[] = [],
-  recipes: Recipe[] = []
+  recipes: Recipe[] = [],
+  dismissedPackagingDates: Record<string, boolean> = {}
 ): DaySchedule[] {
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
   const todayStr = formatDateToISO(new Date());
@@ -283,7 +286,10 @@ export function getWeekDays(
       }
     }
 
-    const hasPreviousDayPackaging = prevDayBatches.length > 0;
+    const rawHasPreviousDayPackaging = prevDayBatches.length > 0;
+    const isPackagingDismissed = Boolean(dismissedPackagingDates[dateStr]);
+    const hasPreviousDayPackaging = rawHasPreviousDayPackaging && !isPackagingDismissed;
+
     let packagingReservedMinutes = 0;
     if (hasPreviousDayPackaging) {
       const minutesList = prevDayBatches.map((b) => {
@@ -373,6 +379,8 @@ export function getWeekDays(
       productionFormatted,
       productionLaborPercent,
       totalUnits,
+      rawHasPreviousDayPackaging,
+      isPackagingDismissed,
       hasPreviousDayPackaging,
       previousDayPackagingBatches,
       packagingReservedMinutes,

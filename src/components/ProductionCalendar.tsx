@@ -46,6 +46,9 @@ interface ProductionCalendarProps {
   recipes: Recipe[];
   activeBatches: ActiveBatch[];
   checkedItems?: Record<string, boolean>;
+  dismissedPackagingDates?: Record<string, boolean>;
+  onDismissPackaging?: (dateStr: string) => void;
+  onRestorePackaging?: (dateStr: string) => void;
   onToggleCheckItem?: (nameOrKey: string, category?: string, isPackaging?: boolean) => void;
   onMarkAllInStock?: (itemKeys: string[]) => void;
   onClearAllStock?: () => void;
@@ -60,6 +63,9 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   recipes,
   activeBatches,
   checkedItems,
+  dismissedPackagingDates,
+  onDismissPackaging,
+  onRestorePackaging,
   onToggleCheckItem,
   onMarkAllInStock,
   onClearAllStock,
@@ -81,6 +87,49 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
       return {};
     }
   });
+
+  // Dismissed packaging state fallback & propagation
+  const [localDismissedPackaging, setLocalDismissedPackaging] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('vagone_dismissed_packaging_dates');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const activeDismissedPackaging = dismissedPackagingDates || localDismissedPackaging;
+
+  const handleDismissPackaging = (dateStr: string) => {
+    if (onDismissPackaging) {
+      onDismissPackaging(dateStr);
+    }
+    setLocalDismissedPackaging((prev) => {
+      const next = { ...prev, [dateStr]: true };
+      try {
+        localStorage.setItem('vagone_dismissed_packaging_dates', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
+
+  const handleRestorePackaging = (dateStr: string) => {
+    if (onRestorePackaging) {
+      onRestorePackaging(dateStr);
+    }
+    setLocalDismissedPackaging((prev) => {
+      const next = { ...prev };
+      delete next[dateStr];
+      try {
+        localStorage.setItem('vagone_dismissed_packaging_dates', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
 
   const [viewMode, setViewMode] = useState<'weekly' | 'weekly_summary' | 'monthly_summary'>('weekly');
   const [selectedDayForInsumos, setSelectedDayForInsumos] = useState<DaySchedule | null>(null);
@@ -167,8 +216,8 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
 
   // Compute weekly days (5 days if Saturday not visible, 6 days if enabled)
   const weekDays = useMemo(() => {
-    return getWeekDays(currentMonday, isSaturdayVisible, activeBatches, recipes);
-  }, [currentMonday, isSaturdayVisible, activeBatches, recipes]);
+    return getWeekDays(currentMonday, isSaturdayVisible, activeBatches, recipes, activeDismissedPackaging);
+  }, [currentMonday, isSaturdayVisible, activeBatches, recipes, activeDismissedPackaging]);
 
   // Selected recipe object for modal
   const selectedRecipe = useMemo(() => {
@@ -882,18 +931,56 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                       )}
                     </div>
 
-                    {/* Next-Day Packaging Reservation Compact Box */}
+                    {/* Next-Day Packaging Reservation Compact Box with Remove Action */}
                     {day.hasPreviousDayPackaging && (
-                      <div className="flex items-center justify-between p-2 rounded-xl bg-amber-200/70 border border-amber-300 text-amber-950 shadow-2xs">
+                      <div className="flex items-center justify-between p-2 rounded-xl bg-amber-200/70 border border-amber-300 text-amber-950 shadow-2xs group/pkg transition-all">
                         <div className="flex items-center gap-1.5 min-w-0 font-bold text-xs truncate">
                           <Package className="w-3.5 h-3.5 text-amber-800 shrink-0" />
-                          <span className="truncate">
+                          <span 
+                            className="truncate"
+                            title={`Empaquetado (${day.previousDayPackagingBatches.map(b => b.recipeName).join(', ')})`}
+                          >
                             Empaquetado ({day.previousDayPackagingBatches.map(b => b.recipeName).join(', ')})
                           </span>
                         </div>
-                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-300 text-amber-950 shrink-0 ml-1.5">
-                          +{day.packagingReservedMinutes} min
+                        <div className="flex items-center gap-1 shrink-0 ml-1.5">
+                          <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-300 text-amber-950 shrink-0">
+                            +{day.packagingReservedMinutes} min
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDismissPackaging(day.dateStr);
+                            }}
+                            className="p-1 rounded-md text-amber-800 hover:text-red-700 hover:bg-amber-300/80 transition-colors cursor-pointer"
+                            title="Eliminar empaquetado de este día (ya realizado fuera de horario o no requerido)"
+                            aria-label="Eliminar empaquetado del día"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Subtle Restore Link when packaging was dismissed for this day */}
+                    {day.isPackagingDismissed && day.rawHasPreviousDayPackaging && (
+                      <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-100/90 border border-dashed border-slate-300 text-[10px] text-slate-500">
+                        <span className="truncate italic flex items-center gap-1">
+                          <Package className="w-3 h-3 text-slate-400 shrink-0" />
+                          Empaquetado omitido (0 min)
                         </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRestorePackaging(day.dateStr);
+                          }}
+                          className="font-bold text-amber-700 hover:text-amber-900 hover:underline shrink-0 ml-1.5 cursor-pointer"
+                          title="Restaurar el tiempo de empaquetado en este día"
+                        >
+                          Restaurar (+35m)
+                        </button>
                       </div>
                     )}
                   </div>

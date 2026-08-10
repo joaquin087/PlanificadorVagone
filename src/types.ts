@@ -79,6 +79,7 @@ export interface FreezerOccupancyRule {
   f2TraysText: string; // e.g. "2/10" o "LIBRE"
   f2MaxTrays: number;
   f2TraysOccupied: number;
+  isDirectPotes?: boolean;
   ruleNotes?: string;
   criticalLimitWarning?: string;
 }

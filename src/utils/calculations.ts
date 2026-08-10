@@ -186,11 +186,7 @@ export function calculateBatchTime(recipe: Recipe, targetUnits: number): {
 
 /**
  * Exact capacity rules for ONE standard freezer (100% occupancy):
- * - Pastas: 44 paquetes de 24u = 1.056 unidades (11 bandejas pasantes de frío)
- * - Tequeños: 900 tequeños (10 bandejas x 90u)
- * - Chipas: 2.400 chipas (10 bandejas x 240u)
- * - Canelones: 72 bandejas plásticas (6 bandejas metálicas grandes x 12 bandejas plásticas c/u)
- * - Postres: 400 potes / porciones individuales (apilados directamente sin bandejas metálicas)
+ * Dynamically computes units per freezer based on recipe baseYieldUnits and configured freezerRule (f1Percent + f2Percent).
  */
 export function getFreezerCapacitySpec(recipe: Recipe): {
   unitsPerFreezer: number;
@@ -199,76 +195,53 @@ export function getFreezerCapacitySpec(recipe: Recipe): {
   isDirectPotes: boolean;
   trayDescription: string;
 } {
-  if (recipe.category === 'pastas' || recipe.yieldUnitName === 'docenas') {
-    return {
-      unitsPerFreezer: 88, // 88 docenas por freezer (11 bandejas x 8 docenas)
-      unitLabel: 'docenas',
-      maxTraysPerFreezer: 11,
-      isDirectPotes: false,
-      trayDescription: '11 bandejas pasantes (8 docenas c/u = 88 docenas máx por freezer)',
-    };
+  const f1 = typeof recipe.freezerRule?.f1Percent === 'number' ? recipe.freezerRule.f1Percent : 100;
+  const f2 = typeof recipe.freezerRule?.f2Percent === 'number' ? recipe.freezerRule.f2Percent : 0;
+  const baseFreezers = (f1 + f2) / 100;
+  const baseYield = Math.max(1, recipe.baseYieldUnits || 1);
+
+  // Calculate how many units fit in ONE standard freezer (100% of 1 freezer)
+  const unitsPerFreezer = baseFreezers > 0
+    ? Math.max(1, Math.round(baseYield / baseFreezers))
+    : baseYield;
+
+  const isDirectPotes = recipe.category === 'postres' || !!recipe.freezerRule?.isDirectPotes;
+  const maxTraysPerFreezer = isDirectPotes
+    ? 0
+    : (recipe.freezerRule?.f1MaxTrays || (recipe.category === 'pastas' ? 11 : recipe.category === 'canelones' ? 6 : 10));
+
+  let trayDescription = recipe.freezerRule?.ruleNotes || '';
+  if (!trayDescription) {
+    if (isDirectPotes) {
+      trayDescription = `${unitsPerFreezer} ${recipe.yieldUnitName || 'potes'} apilados directamente (sin bandejas metálicas)`;
+    } else if (maxTraysPerFreezer > 0) {
+      trayDescription = `${maxTraysPerFreezer} bandejas por freezer (~${Math.round(unitsPerFreezer / maxTraysPerFreezer)} ${recipe.yieldUnitName} c/u)`;
+    } else {
+      trayDescription = `Capacidad estándar: ${unitsPerFreezer} ${recipe.yieldUnitName} por freezer`;
+    }
   }
-  if (recipe.category === 'tequenos' || recipe.id === 'tequenos') {
-    return {
-      unitsPerFreezer: 900,
-      unitLabel: 'tequeños',
-      maxTraysPerFreezer: 10,
-      isDirectPotes: false,
-      trayDescription: '10 bandejas (90 tequeños c/u)',
-    };
-  }
-  if (recipe.category === 'chipas' || recipe.id.startsWith('chipa')) {
-    return {
-      unitsPerFreezer: 2400,
-      unitLabel: 'chipas',
-      maxTraysPerFreezer: 10,
-      isDirectPotes: false,
-      trayDescription: '10 bandejas (240 chipas c/u)',
-    };
-  }
-  if (recipe.category === 'canelones' || recipe.id === 'canelones') {
-    return {
-      unitsPerFreezer: 72,
-      unitLabel: 'bandejas de canelones',
-      maxTraysPerFreezer: 6,
-      isDirectPotes: false,
-      trayDescription: '6 bandejas metálicas grandes (12 bandejas plásticas c/u = 72 u)',
-    };
-  }
-  if (recipe.category === 'postres') {
-    return {
-      unitsPerFreezer: 400,
-      unitLabel: 'potes / porciones',
-      maxTraysPerFreezer: 0,
-      isDirectPotes: true,
-      trayDescription: '400 potes apilados directamente (sin bandejas metálicas)',
-    };
-  }
-  if (recipe.category === 'pizzas' || recipe.id.includes('pizza')) {
-    return {
-      unitsPerFreezer: recipe.baseYieldUnits || 500,
-      unitLabel: recipe.yieldUnitName || 'pizzas',
-      maxTraysPerFreezer: 10,
-      isDirectPotes: false,
-      trayDescription: '10 bandejas pasantes / rejillas de ultracongelación',
-    };
-  }
+
   return {
-    unitsPerFreezer: recipe.baseYieldUnits || 1000,
+    unitsPerFreezer,
     unitLabel: recipe.yieldUnitName || 'unidades',
-    maxTraysPerFreezer: 10,
-    isDirectPotes: false,
-    trayDescription: '10 bandejas estándar',
+    maxTraysPerFreezer,
+    isDirectPotes,
+    trayDescription,
   };
 }
 
 /**
  * Returns fraction of ONE standard freezer required for given target units of a recipe
+ * E.g., 3000 chipas (f1=100%, f2=25%) -> 1.25 freezers (62.5% ~ 63% of 2-freezer plant capacity)
+ * E.g., 88 raviolones (f1=100%, f2=100%) -> 2.0 freezers (100% of 2-freezer plant capacity)
  */
 export function calculateBatchFreezerFraction(recipe: Recipe, targetUnits: number): number {
-  const spec = getFreezerCapacitySpec(recipe);
-  if (spec.unitsPerFreezer <= 0) return 0;
-  return targetUnits / spec.unitsPerFreezer;
+  const baseYield = Math.max(1, recipe.baseYieldUnits || 1);
+  const ratio = targetUnits / baseYield;
+  const f1 = typeof recipe.freezerRule?.f1Percent === 'number' ? recipe.freezerRule.f1Percent : 100;
+  const f2 = typeof recipe.freezerRule?.f2Percent === 'number' ? recipe.freezerRule.f2Percent : 0;
+  const baseFreezers = (f1 + f2) / 100;
+  return baseFreezers * ratio;
 }
 
 export function formatGrams(grams: number, unit?: string, ingredientName?: string): string {
@@ -370,9 +343,14 @@ export function scaleRecipe(
   const timeSpec = timeCalc.spec;
   const laborPercent = Math.round(ratio * 100);
 
-  // Freezer calculation using interchangeable single-freezer 100% reference
+  // Freezer calculation using user configured rule
   const freezerSpec = getFreezerCapacitySpec(recipe);
-  const singleFreezerFraction = targetYield / freezerSpec.unitsPerFreezer;
+  const baseF1 = typeof recipe.freezerRule?.f1Percent === 'number' ? recipe.freezerRule.f1Percent : 100;
+  const baseF2 = typeof recipe.freezerRule?.f2Percent === 'number' ? recipe.freezerRule.f2Percent : 0;
+  const baseFreezers = (baseF1 + baseF2) / 100;
+
+  // Single freezer fraction required for this targetYield (1.0 = 1 full freezer, 2.0 = 2 full freezers)
+  const singleFreezerFraction = baseFreezers * ratio;
   const singleFreezerPercent = Math.round(singleFreezerFraction * 100);
   const totalFreezerOccupancyPercent = Math.round((singleFreezerFraction / 2) * 100);
 
@@ -390,7 +368,7 @@ export function scaleRecipe(
       f1Trays = Math.round(singleFreezerFraction * freezerSpec.maxTraysPerFreezer * 10) / 10;
     }
     occupancySummary = `Ocupa ${totalFreezerOccupancyPercent}% de la capacidad total de freezers (${f1Percent}% de 1 freezer, dejando el 2do libre).`;
-  } else if (singleFreezerFraction <= 2.0) {
+  } else if (singleFreezerFraction <= 2.001) {
     // Requires both freezers
     f1Percent = 100;
     f2Percent = Math.round((singleFreezerFraction - 1.0) * 100);
@@ -411,12 +389,11 @@ export function scaleRecipe(
   }
 
   const warnings: string[] = [];
-  let isOverCapacity = false;
+  const isOverCapacity = singleFreezerFraction > 2.001;
   let overCapacityMessage: string | undefined;
 
-  if (singleFreezerFraction > 2.0) {
-    isOverCapacity = true;
-    overCapacityMessage = `¡ATENCIÓN! La cantidad solicitada (${targetYield} ${recipe.yieldUnitName}) excede la capacidad total de los 2 freezers de la fábrica (${totalFreezerOccupancyPercent}% de frío requerido). Se requiere fraccionar en múltiples tandas de producción.`;
+  if (isOverCapacity) {
+    overCapacityMessage = `¡ATENCIÓN! La cantidad solicitada (${targetYield.toLocaleString('es-AR')} ${recipe.yieldUnitName}) excede la capacidad total de los 2 freezers de la fábrica (${totalFreezerOccupancyPercent}% de frío requerido = ${singleFreezerFraction.toFixed(1)} freezers). Supera los 2 freezers disponibles.`;
     warnings.push(overCapacityMessage);
   }
 

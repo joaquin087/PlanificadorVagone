@@ -82,15 +82,15 @@ export function generateShoppingListCanvas(params: ExportShoppingListParams): HT
   const PADDING_X = 36;
   const CONTENT_WIDTH = LOGICAL_WIDTH - PADDING_X * 2; // 1048px
 
-  // Collect categories present in tableRows
-  const categoriesPresent = Object.keys(CATEGORY_MAP).filter((catKey) =>
-    tableRows.some((r) => r.categoryKey === catKey)
-  );
-  // Also collect any categories present in tableRows that might not be in CATEGORY_MAP keys
-  tableRows.forEach((r) => {
-    if (!categoriesPresent.includes(r.categoryKey)) {
-      categoriesPresent.push(r.categoryKey);
-    }
+  // Collect unique categories present in tableRows and sort strictly by user-defined order
+  const uniqueCatKeys = Array.from(new Set(tableRows.map((r) => r.categoryKey)));
+  const categoriesPresent = uniqueCatKeys.sort((a, b) => {
+    const orderA = CATEGORY_MAP[a]?.order ?? 999;
+    const orderB = CATEGORY_MAP[b]?.order ?? 999;
+    if (orderA !== orderB) return orderA - orderB;
+    const labelA = CATEGORY_MAP[a]?.label ?? a;
+    const labelB = CATEGORY_MAP[b]?.label ?? b;
+    return labelA.localeCompare(labelB, 'es', { sensitivity: 'base' });
   });
 
   // Counts

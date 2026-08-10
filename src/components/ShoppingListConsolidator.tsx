@@ -46,6 +46,13 @@ interface ShoppingListConsolidatorProps {
   activeBatches: ActiveBatch[];
   masterIngredients?: MasterIngredient[];
   ingredientCategories?: IngredientCategoryConfig[];
+  checkedItems?: Record<string, boolean>;
+  factoryStock?: Record<string, number>;
+  onToggleCheckItem?: (nameOrKey: string, category?: string, isPackaging?: boolean) => void;
+  onUpdateFactoryStock?: (rowId: string, value: number) => void;
+  onMarkAllPurchased?: (rowIds: string[]) => void;
+  onResetFactoryStock?: () => void;
+  onClearCheckedItems?: () => void;
   onUpdateBatchStatus?: (batchId: string, status: ActiveBatch['status']) => void;
   onNavigateTab: (tab: 'calendar' | 'recipes' | 'shopping') => void;
 }
@@ -102,6 +109,13 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
   activeBatches,
   masterIngredients,
   ingredientCategories,
+  checkedItems: propCheckedItems,
+  factoryStock: propFactoryStock,
+  onToggleCheckItem,
+  onUpdateFactoryStock,
+  onMarkAllPurchased,
+  onResetFactoryStock,
+  onClearCheckedItems,
   onNavigateTab,
 }) => {
   const [bufferPercent, setBufferPercent] = useState<number>(0);
@@ -113,7 +127,7 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
 
   // Dynamic category mapping from props or fallback
   const activeCategoryMap = useMemo(() => {
-    const map: Record<string, { label: string; icon: string; order: number }> = { ...CATEGORY_MAP };
+    const map: Record<string, { label: string; icon: string; order: number }> = {};
     if (ingredientCategories && ingredientCategories.length > 0) {
       ingredientCategories.forEach((cat, idx) => {
         map[cat.id] = {
@@ -123,11 +137,20 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
         };
       });
     }
+    // Fallback for default categories if missing
+    Object.entries(CATEGORY_MAP).forEach(([key, val]) => {
+      if (!map[key]) {
+        map[key] = {
+          ...val,
+          order: val.order + (ingredientCategories?.length || 0),
+        };
+      }
+    });
     return map;
   }, [ingredientCategories]);
 
-  // Load manual factory stock from localStorage
-  const [factoryStock, setFactoryStock] = useState<Record<string, number>>(() => {
+  // Load manual factory stock (uses props or local storage fallback)
+  const [localFactoryStock, setLocalFactoryStock] = useState<Record<string, number>>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_FACTORY_STOCK);
       return saved ? JSON.parse(saved) : {};
@@ -136,8 +159,8 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
     }
   });
 
-  // Load checked/purchased items from localStorage
-  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
+  // Load checked/purchased items (uses props or local storage fallback)
+  const [localCheckedItems, setLocalCheckedItems] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CHECKED);
       return saved ? JSON.parse(saved) : {};
@@ -146,6 +169,9 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
     }
   });
 
+  const activeCheckedItems = propCheckedItems || localCheckedItems;
+  const activeFactoryStock = propFactoryStock || localFactoryStock;
+
   // Image export state
   const [isExportingImage, setIsExportingImage] = useState<boolean>(false);
   const [imageExportStatus, setImageExportStatus] = useState<'downloaded' | 'copied' | null>(null);
@@ -153,19 +179,19 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
   // Sync to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify(checkedItems));
+      localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify(activeCheckedItems));
     } catch (e) {
       console.error('Error saving checked items', e);
     }
-  }, [checkedItems]);
+  }, [activeCheckedItems]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_FACTORY_STOCK, JSON.stringify(factoryStock));
+      localStorage.setItem(STORAGE_KEY_FACTORY_STOCK, JSON.stringify(activeFactoryStock));
     } catch (e) {
       console.error('Error saving factory stock', e);
     }
-  }, [factoryStock]);
+  }, [activeFactoryStock]);
 
   // Today ISO date string (YYYY-MM-DD)
   const todayStr = useMemo(() => formatDateToISO(new Date()), []);
@@ -247,7 +273,8 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
         const isAllBatchesCompleted = item.usedInRecipes.length > 0 && item.usedInRecipes.every((r) => r.isBatchCompleted);
 
         // Manual stock from user input
-        const manualStockGrams = factoryStock[rowId] ?? 0;
+        const cleanName = item.name.toLowerCase().trim();
+        const manualStockGrams = activeFactoryStock[rowId] ?? activeFactoryStock[cleanName] ?? 0;
 
         // Total available stock is the maximum of manual entered stock or batch covered stock
         const totalAvailableStock = Math.max(manualStockGrams, coveredByBatchesGrams);
@@ -262,13 +289,17 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
         } else if (item.unit === 'L' || item.unit === 'ml') {
           inputUnit = 'L';
           inputScale = 1000;
-        } else if (item.totalGrams < 1000 && !item.name.toLowerCase().includes('harina') && !item.name.toLowerCase().includes('queso')) {
+        } else if (item.totalGrams < 1000 && !cleanName.includes('harina') && !cleanName.includes('queso')) {
           // Smaller spice/condiment: enter in grams
           inputUnit = 'g';
           inputScale = 1;
         }
 
-        const isChecked = !!checkedItems[rowId];
+        const isChecked = Boolean(
+          activeCheckedItems[rowId] ||
+          activeCheckedItems[cleanName] ||
+          activeCheckedItems[`ing_${catKey}_${cleanName}`]
+        );
         const isCoveredByStock = totalAvailableStock >= bufferedGrams && bufferedGrams > 0;
         const isInStock = isChecked || isAllBatchesCompleted || isCoveredByStock;
 
@@ -327,7 +358,8 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
 
     // Packaging & Disposables
     consolidated.packagingList.forEach((pkg) => {
-      const rowId = `pkg_${pkg.name.toLowerCase().trim()}`;
+      const cleanPkgName = pkg.name.toLowerCase().trim();
+      const rowId = `pkg_${cleanPkgName}`;
       const bufferedCount = Math.ceil(pkg.totalCount * (1 + bufferPercent / 100));
       const catConfig = activeCategoryMap['empaques'] || { label: 'Empaque & Descartables', icon: '🛍️', order: 8 };
 
@@ -336,10 +368,14 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
         .reduce((sum, r) => sum + r.count, 0);
 
       const isAllBatchesCompleted = pkg.usedInRecipes.length > 0 && pkg.usedInRecipes.every((r) => r.isBatchCompleted);
-      const manualStockCount = factoryStock[rowId] ?? 0;
+      const manualStockCount = activeFactoryStock[rowId] ?? activeFactoryStock[cleanPkgName] ?? 0;
       const totalAvailableStock = Math.max(manualStockCount, coveredByBatchesCount);
 
-      const isChecked = !!checkedItems[rowId];
+      const isChecked = Boolean(
+        activeCheckedItems[rowId] ||
+        activeCheckedItems[cleanPkgName] ||
+        activeCheckedItems[`pkg_${cleanPkgName}`]
+      );
       const isCoveredByStock = totalAvailableStock >= bufferedCount && bufferedCount > 0;
       const isInStock = isChecked || isAllBatchesCompleted || isCoveredByStock;
 
@@ -404,7 +440,7 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
     });
 
     return rows;
-  }, [consolidated, bufferPercent, factoryStock, checkedItems, activeCategoryMap]);
+  }, [consolidated, bufferPercent, activeFactoryStock, activeCheckedItems, activeCategoryMap]);
 
   // 6. Filter rows by Search, Category and Hide Purchased
   const filteredRows = useMemo(() => {
@@ -438,60 +474,99 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
 
   // Manual checkbox toggle
   const toggleCheck = (rowId: string) => {
-    setCheckedItems((prev) => {
-      const isCurrentlyChecked = !!prev[rowId];
-      return { ...prev, [rowId]: !isCurrentlyChecked };
-    });
+    if (onToggleCheckItem) {
+      const isPkg = rowId.startsWith('pkg_');
+      const catKey = rowId.startsWith('ing_') ? rowId.split('_')[1] : undefined;
+      onToggleCheckItem(rowId, catKey, isPkg);
+    } else {
+      setLocalCheckedItems((prev) => {
+        const isCurrentlyChecked = !!prev[rowId];
+        return { ...prev, [rowId]: !isCurrentlyChecked };
+      });
+    }
   };
 
   // Stock Input updater
   const handleUpdateStock = (row: TableRowItem, rawInputVal: number) => {
     const safeVal = isNaN(rawInputVal) || rawInputVal < 0 ? 0 : rawInputVal;
     const internalVal = safeVal * row.inputScale;
-    setFactoryStock((prev) => ({
-      ...prev,
-      [row.id]: internalVal,
-    }));
+    if (onUpdateFactoryStock) {
+      onUpdateFactoryStock(row.id, internalVal);
+    } else {
+      setLocalFactoryStock((prev) => ({
+        ...prev,
+        [row.id]: internalVal,
+      }));
+    }
   };
 
   // Quick action: Set stock = needed amount (tengo todo)
   const handleCoverStock = (row: TableRowItem) => {
-    setFactoryStock((prev) => ({
-      ...prev,
-      [row.id]: row.bufferedGramsOrCount,
-    }));
-    setCheckedItems((prev) => ({
-      ...prev,
-      [row.id]: true,
-    }));
+    if (onUpdateFactoryStock) {
+      onUpdateFactoryStock(row.id, row.bufferedGramsOrCount);
+    } else {
+      setLocalFactoryStock((prev) => ({
+        ...prev,
+        [row.id]: row.bufferedGramsOrCount,
+      }));
+    }
+    if (onToggleCheckItem) {
+      const isPkg = row.isPackaging;
+      onToggleCheckItem(row.id, row.categoryKey, isPkg);
+    } else {
+      setLocalCheckedItems((prev) => ({
+        ...prev,
+        [row.id]: true,
+      }));
+    }
   };
 
   // Quick action: Clear stock to 0
   const handleClearStock = (row: TableRowItem) => {
-    setFactoryStock((prev) => {
-      const next = { ...prev };
-      delete next[row.id];
-      return next;
-    });
-    setCheckedItems((prev) => ({
-      ...prev,
-      [row.id]: false,
-    }));
+    if (onUpdateFactoryStock) {
+      onUpdateFactoryStock(row.id, 0);
+    } else {
+      setLocalFactoryStock((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+    }
+    if (onToggleCheckItem && activeCheckedItems[row.id]) {
+      const isPkg = row.isPackaging;
+      onToggleCheckItem(row.id, row.categoryKey, isPkg);
+    } else {
+      setLocalCheckedItems((prev) => ({
+        ...prev,
+        [row.id]: false,
+      }));
+    }
   };
 
   // Batch actions
   const handleSelectAllVisible = () => {
-    const updated = { ...checkedItems };
     const allInStock = filteredRows.every((r) => r.isInStock);
-    filteredRows.forEach((r) => {
-      updated[r.id] = !allInStock;
-    });
-    setCheckedItems(updated);
+    if (onMarkAllPurchased) {
+      const targetIds = filteredRows.map((r) => r.id);
+      if (allInStock) {
+        if (onClearCheckedItems) onClearCheckedItems();
+      } else {
+        onMarkAllPurchased(targetIds);
+      }
+    } else {
+      const updated = { ...localCheckedItems };
+      filteredRows.forEach((r) => {
+        updated[r.id] = !allInStock;
+      });
+      setLocalCheckedItems(updated);
+    }
   };
 
   const handleClearAllChecksAndStock = () => {
-    setCheckedItems({});
-    setFactoryStock({});
+    if (onClearCheckedItems) onClearCheckedItems();
+    if (onResetFactoryStock) onResetFactoryStock();
+    setLocalCheckedItems({});
+    setLocalFactoryStock({});
   };
 
   // WhatsApp Copy Handler
@@ -626,7 +701,7 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
         batches: batchesToConsolidate,
         recipes,
         tableRows: exportRows,
-        checkedItems,
+        checkedItems: activeCheckedItems,
         bufferPercent,
         CATEGORY_MAP: activeCategoryMap,
         formatBatchDateShort,
@@ -1063,7 +1138,7 @@ export const ShoppingListConsolidator: React.FC<ShoppingListConsolidatorProps> =
               <span>{hidePurchased ? 'Ocultando en stock' : 'Ocultar en stock'}</span>
             </button>
 
-            {(inStockCount > 0 || Object.keys(factoryStock).length > 0) && (
+            {(inStockCount > 0 || Object.keys(activeFactoryStock).length > 0) && (
               <button
                 onClick={handleClearAllChecksAndStock}
                 className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"

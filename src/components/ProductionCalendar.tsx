@@ -45,6 +45,10 @@ import {
 interface ProductionCalendarProps {
   recipes: Recipe[];
   activeBatches: ActiveBatch[];
+  checkedItems?: Record<string, boolean>;
+  onToggleCheckItem?: (nameOrKey: string, category?: string, isPackaging?: boolean) => void;
+  onMarkAllInStock?: (itemKeys: string[]) => void;
+  onClearAllStock?: () => void;
   onAddBatch: (batch: Partial<ActiveBatch>) => void;
   onUpdateBatchStatus: (batchId: string, status: ActiveBatch['status']) => void;
   onRemoveBatch: (batchId: string) => void;
@@ -55,6 +59,10 @@ interface ProductionCalendarProps {
 export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   recipes,
   activeBatches,
+  checkedItems,
+  onToggleCheckItem,
+  onMarkAllInStock,
+  onClearAllStock,
   onAddBatch,
   onUpdateBatchStatus,
   onRemoveBatch,
@@ -79,7 +87,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   const [copiedDayText, setCopiedDayText] = useState(false);
   const [copiedWeeklyText, setCopiedWeeklyText] = useState(false);
 
-  // Stock tracking in weekly summary
+  // Stock tracking local fallback (unified with global checkedItems when provided)
   const [stockItemKeys, setStockItemKeys] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('fabriplan_weekly_stock_items');
@@ -326,40 +334,65 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
     return getConsolidatedInsumosForBatches(monthlyBatches, recipes);
   }, [monthlyBatches, recipes]);
 
-  // Toggle ingredient in stock
-  const toggleStockItem = (itemKey: string) => {
-    setStockItemKeys((prev) => {
-      const next = { ...prev, [itemKey]: !prev[itemKey] };
-      try {
-        localStorage.setItem('fabriplan_weekly_stock_items', JSON.stringify(next));
-      } catch (e) {
-        console.error(e);
-      }
-      return next;
-    });
+  const activeStockMap = checkedItems || stockItemKeys;
+
+  const isItemInStock = (name: string, category?: string, isPackaging?: boolean) => {
+    const cleanName = name.toLowerCase().replace(/^(ing_[a-z0-9_]+_|pkg_)/, '').trim();
+    return Boolean(
+      activeStockMap[name] ||
+      activeStockMap[cleanName] ||
+      (category ? activeStockMap[`ing_${category}_${cleanName}`] : false) ||
+      (isPackaging ? activeStockMap[`pkg_${cleanName}`] : false) ||
+      activeStockMap[`pkg_${cleanName}`]
+    );
+  };
+
+  // Toggle ingredient in stock (synchronized with global shopping list and cloud)
+  const toggleStockItem = (itemKey: string, category?: string, isPackaging?: boolean) => {
+    if (onToggleCheckItem) {
+      onToggleCheckItem(itemKey, category, isPackaging);
+    } else {
+      setStockItemKeys((prev) => {
+        const next = { ...prev, [itemKey]: !prev[itemKey] };
+        try {
+          localStorage.setItem('fabriplan_weekly_stock_items', JSON.stringify(next));
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
+      });
+    }
   };
 
   const markAllInStock = (allItemKeys: string[]) => {
-    setStockItemKeys((prev) => {
-      const next = { ...prev };
-      allItemKeys.forEach((k) => {
-        next[k] = true;
+    if (onMarkAllInStock) {
+      onMarkAllInStock(allItemKeys);
+    } else {
+      setStockItemKeys((prev) => {
+        const next = { ...prev };
+        allItemKeys.forEach((k) => {
+          next[k] = true;
+        });
+        try {
+          localStorage.setItem('fabriplan_weekly_stock_items', JSON.stringify(next));
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
       });
-      try {
-        localStorage.setItem('fabriplan_weekly_stock_items', JSON.stringify(next));
-      } catch (e) {
-        console.error(e);
-      }
-      return next;
-    });
+    }
   };
 
   const clearAllStock = () => {
-    setStockItemKeys({});
-    try {
-      localStorage.removeItem('fabriplan_weekly_stock_items');
-    } catch (e) {
-      console.error(e);
+    if (onClearAllStock) {
+      onClearAllStock();
+    } else {
+      setStockItemKeys({});
+      try {
+        localStorage.removeItem('fabriplan_weekly_stock_items');
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 
@@ -424,7 +457,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
       if (items.length > 0) {
         text += `\n*${categoryLabels[catKey] || catKey.toUpperCase()}:*\n`;
         items.forEach((item) => {
-          const inStock = !!stockItemKeys[item.name.toLowerCase().trim()];
+          const inStock = isItemInStock(item.name, catKey);
           text += `- ${item.name}: ${formatSimpleKg(item.totalGrams, item.unit)}${inStock ? ' (✅ En Stock)' : ' (🚨 A Comprar)'}\n`;
         });
       }
@@ -433,7 +466,8 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
     if (dayInsumos.packagingList.length > 0) {
       text += `\n*📦 EMPAQUE Y BOLSAS:*\n`;
       dayInsumos.packagingList.forEach((pkg) => {
-        text += `- ${pkg.name}: ${pkg.totalCount} unidades\n`;
+        const inStock = isItemInStock(pkg.name, 'empaques', true);
+        text += `- ${pkg.name}: ${pkg.totalCount} unidades${inStock ? ' (✅ En Stock)' : ' (🚨 A Comprar)'}\n`;
       });
     }
 
@@ -466,14 +500,14 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
 
     (Object.entries(weeklyInsumos.ingredientsByCategory) as [string, ConsolidatedIngredient[]][]).forEach(([catKey, items]) => {
       const filtered = onlyUrgent
-        ? items.filter((it) => !stockItemKeys[it.name.toLowerCase().trim()])
+        ? items.filter((it) => !isItemInStock(it.name, catKey))
         : items;
 
       if (filtered.length > 0) {
         hasItems = true;
         text += `*${categoryLabels[catKey] || catKey.toUpperCase()}:*\n`;
         filtered.forEach((item) => {
-          const inStock = !!stockItemKeys[item.name.toLowerCase().trim()];
+          const inStock = isItemInStock(item.name, catKey);
           text += `• ${item.name}: ${formatSimpleKg(item.totalGrams, item.unit)}${inStock ? ' (✅ En Stock)' : ''}\n`;
         });
         text += `\n`;
@@ -485,11 +519,18 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
     }
 
     if (weeklyInsumos.packagingList.length > 0) {
-      text += `*📦 MATERIAL DE EMPAQUE:*\n`;
-      weeklyInsumos.packagingList.forEach((pkg) => {
-        text += `• ${pkg.name}: ${pkg.totalCount} unidades\n`;
-      });
-      text += `\n`;
+      const filteredPackaging = onlyUrgent
+        ? weeklyInsumos.packagingList.filter((pkg) => !isItemInStock(pkg.name, 'empaques', true))
+        : weeklyInsumos.packagingList;
+
+      if (filteredPackaging.length > 0) {
+        text += `*📦 MATERIAL DE EMPAQUE:*\n`;
+        filteredPackaging.forEach((pkg) => {
+          const inStock = isItemInStock(pkg.name, 'empaques', true);
+          text += `• ${pkg.name}: ${pkg.totalCount} unidades${inStock ? ' (✅ En Stock)' : ''}\n`;
+        });
+        text += `\n`;
+      }
     }
 
     text += `_Generado por Planificador Vagone - Control de Fábrica_`;
@@ -1658,15 +1699,61 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                           otros: '📦 Otros Insumos',
                         };
 
+                        const allDayItemKeys: string[] = [];
+                        (Object.entries(dayConsolidated.ingredientsByCategory) as [string, ConsolidatedIngredient[]][]).forEach(([catKey, items]) => {
+                          items.forEach((it) => allDayItemKeys.push(it.name));
+                        });
+                        dayConsolidated.packagingList.forEach((pkg) => {
+                          allDayItemKeys.push(`pkg_${pkg.name.toLowerCase().trim()}`);
+                        });
+
+                        const dayStockedCount = allDayItemKeys.filter((k) => isItemInStock(k)).length;
+                        const dayTotalCount = allDayItemKeys.length;
+
                         return (
                           <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                                Insumos Exactos a Pesar / Preparar:
-                              </h3>
-                              <span className="text-[11px] text-slate-500 font-medium">
-                                Haz clic para marcar stock
-                              </span>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                              <div>
+                                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                  <span>Insumos & Descartables a Pesar / Preparar</span>
+                                  {dayTotalCount > 0 && (
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                                      dayStockedCount === dayTotalCount
+                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                        : 'bg-amber-100 text-amber-900 border-amber-300'
+                                    }`}>
+                                      {dayStockedCount}/{dayTotalCount} en stock
+                                    </span>
+                                  )}
+                                </h3>
+                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                  Al marcar insumos aquí, se sincronizan y <strong>descuentan automáticamente de la Lista de Compras</strong>.
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => markAllInStock(allDayItemKeys)}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition-all shadow-xs flex items-center gap-1"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>Marcar todos</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    allDayItemKeys.forEach((k) => {
+                                      if (isItemInStock(k)) {
+                                        toggleStockItem(k);
+                                      }
+                                    });
+                                  }}
+                                  className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-[11px] font-bold transition-all"
+                                >
+                                  Desmarcar
+                                </button>
+                              </div>
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1679,28 +1766,33 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
                                     </h4>
                                     <div className="space-y-1.5">
                                       {items.map((it) => {
-                                        const inStock = !!stockItemKeys[it.name.toLowerCase().trim()];
+                                        const inStock = isItemInStock(it.name, catKey);
                                         return (
                                           <div
                                             key={it.name}
-                                            onClick={() => toggleStockItem(it.name.toLowerCase().trim())}
-                                            className={`flex items-center justify-between text-xs p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                            onClick={() => toggleStockItem(it.name, catKey)}
+                                            className={`flex items-center justify-between text-xs p-2 rounded-lg border transition-all cursor-pointer select-none ${
                                               inStock
-                                                ? 'bg-emerald-50/60 border-emerald-200 text-emerald-900'
-                                                : 'bg-slate-50 border-slate-100 text-slate-800 hover:border-amber-300'
+                                                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950 hover:bg-emerald-100/70'
+                                                : 'bg-slate-50 border-slate-200 text-slate-800 hover:border-amber-300 hover:bg-white'
                                             }`}
                                           >
-                                            <div className="flex items-center gap-1.5 min-w-0">
-                                              <div className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <div className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0 transition-colors ${
                                                 inStock ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 bg-white'
                                               }`}>
                                                 {inStock && <Check className="w-3 h-3" />}
                                               </div>
-                                              <span className={`truncate font-medium ${inStock ? 'line-through opacity-75' : ''}`}>
-                                                {it.name}
-                                              </span>
+                                              <div className="min-w-0">
+                                                <span className={`truncate block font-medium ${inStock ? 'line-through opacity-75 text-emerald-900' : 'text-slate-800'}`}>
+                                                  {it.name}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 block font-normal">
+                                                  {inStock ? 'En stock en fábrica (descontado)' : 'Pendiente a comprar'}
+                                                </span>
+                                              </div>
                                             </div>
-                                            <span className={`font-bold ml-1 shrink-0 ${inStock ? 'text-emerald-800' : 'text-slate-900'}`}>
+                                            <span className={`font-bold ml-1 shrink-0 ${inStock ? 'text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-200' : 'text-slate-900 bg-white px-1.5 py-0.5 rounded border border-slate-200'}`}>
                                               {formatSimpleKg(it.totalGrams, it.unit)}
                                             </span>
                                           </div>
@@ -1714,16 +1806,39 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
 
                             {dayConsolidated.packagingList.length > 0 && (
                               <div className="rounded-xl border border-slate-200 p-3.5 bg-white space-y-2">
-                                <h4 className="text-xs font-bold text-slate-900 border-b pb-1">
-                                  📦 Materiales de Empaque y Descartables
+                                <h4 className="text-xs font-bold text-slate-900 border-b pb-1 flex items-center justify-between">
+                                  <span>📦 Materiales de Empaque y Descartables</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">Clic para marcar en stock</span>
                                 </h4>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                  {dayConsolidated.packagingList.map((pkg) => (
-                                    <div key={pkg.name} className="text-xs flex items-center justify-between p-1.5 bg-slate-50 rounded">
-                                      <span className="text-slate-600 truncate">{pkg.name}</span>
-                                      <span className="font-bold text-slate-900 ml-1">{pkg.totalCount} u</span>
-                                    </div>
-                                  ))}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {dayConsolidated.packagingList.map((pkg) => {
+                                    const inStock = isItemInStock(pkg.name, 'empaques', true);
+                                    return (
+                                      <div
+                                        key={pkg.name}
+                                        onClick={() => toggleStockItem(pkg.name, 'empaques', true)}
+                                        className={`text-xs flex items-center justify-between p-2 rounded-lg border cursor-pointer select-none transition-all ${
+                                          inStock
+                                            ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                                            : 'bg-slate-50 border-slate-200 hover:border-amber-300 hover:bg-white'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[9px] shrink-0 ${
+                                            inStock ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 bg-white'
+                                          }`}>
+                                            {inStock && <Check className="w-2.5 h-2.5" />}
+                                          </div>
+                                          <span className={`truncate text-slate-700 font-medium ${inStock ? 'line-through opacity-75 text-emerald-900' : ''}`}>
+                                            {pkg.name}
+                                          </span>
+                                        </div>
+                                        <span className={`font-bold ml-1 shrink-0 ${inStock ? 'text-emerald-800' : 'text-slate-900'}`}>
+                                          {pkg.totalCount} u
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}

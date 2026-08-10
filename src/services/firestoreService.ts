@@ -19,6 +19,8 @@ const RECIPES_COLLECTION = 'recipes';
 const MASTER_INGREDIENTS_COLLECTION = 'master_ingredients';
 const INGREDIENT_CATEGORIES_COLLECTION = 'ingredient_categories';
 const PRODUCTION_CATEGORIES_COLLECTION = 'production_categories';
+const INVENTORY_STATE_COLLECTION = 'inventory_state';
+const INVENTORY_STATE_DOC = 'stock_and_checked';
 
 // Helper to remove undefined fields which Firestore rejects
 function sanitizeForFirestore<T extends object>(data: T): Record<string, any> {
@@ -215,6 +217,16 @@ export async function saveIngredientCategoryToFirestore(cat: IngredientCategoryC
   }
 }
 
+export async function deleteIngredientCategoryFromFirestore(catId: string): Promise<void> {
+  try {
+    const ref = doc(db, INGREDIENT_CATEGORIES_COLLECTION, catId);
+    await deleteDoc(ref);
+  } catch (error) {
+    console.error('Error deleting ingredient category from Firestore:', error);
+    throw error;
+  }
+}
+
 export async function saveAllIngredientCategoriesToFirestore(cats: IngredientCategoryConfig[]): Promise<void> {
   try {
     const batch = writeBatch(db);
@@ -262,6 +274,16 @@ export async function saveProductionCategoryToFirestore(pCat: ProductionCategory
     await setDoc(ref, sanitizeForFirestore(pCat), { merge: true });
   } catch (error) {
     console.error('Error saving production category to Firestore:', error);
+    throw error;
+  }
+}
+
+export async function deleteProductionCategoryFromFirestore(pCatId: string): Promise<void> {
+  try {
+    const ref = doc(db, PRODUCTION_CATEGORIES_COLLECTION, pCatId);
+    await deleteDoc(ref);
+  } catch (error) {
+    console.error('Error deleting production category from Firestore:', error);
     throw error;
   }
 }
@@ -377,6 +399,23 @@ export async function saveRecipeToFirestore(recipe: Recipe): Promise<void> {
 }
 
 /**
+ * Save or update multiple recipes in Firestore in a single batch
+ */
+export async function saveAllRecipesToFirestore(recipes: Recipe[]): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    for (const recipe of recipes) {
+      const ref = doc(db, RECIPES_COLLECTION, recipe.id);
+      batch.set(ref, sanitizeForFirestore(recipe));
+    }
+    await batch.commit();
+  } catch (error) {
+    console.error('Error saving all recipes to Firestore:', error);
+    throw error;
+  }
+}
+
+/**
  * Delete a recipe from Firestore
  */
 export async function deleteRecipeFromFirestore(recipeId: string): Promise<void> {
@@ -405,3 +444,49 @@ export async function resetRecipesInFirestore(): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * Inventory Stock & Checked Items Firestore Handlers
+ */
+export interface FirestoreInventoryState {
+  checkedItems: Record<string, boolean>;
+  factoryStock: Record<string, number>;
+  updatedAt?: string;
+}
+
+export function subscribeToInventoryState(
+  onUpdate: (state: FirestoreInventoryState) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const ref = doc(db, INVENTORY_STATE_COLLECTION, INVENTORY_STATE_DOC);
+  return onSnapshot(
+    ref,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as FirestoreInventoryState;
+        onUpdate(data);
+      }
+    },
+    (error) => {
+      console.error('Error listening to inventory state:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+export async function saveInventoryStateToFirestore(state: Partial<FirestoreInventoryState>): Promise<void> {
+  try {
+    const ref = doc(db, INVENTORY_STATE_COLLECTION, INVENTORY_STATE_DOC);
+    await setDoc(
+      ref,
+      sanitizeForFirestore({
+        ...state,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
+  } catch (error) {
+    console.error('Error saving inventory state to Firestore:', error);
+  }
+}
+

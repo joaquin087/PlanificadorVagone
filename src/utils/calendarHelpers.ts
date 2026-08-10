@@ -334,7 +334,7 @@ export function getWeekDays(
     if (totalFreezerFraction <= 1.0) {
       f1Percent = Math.round(totalFreezerFraction * 100);
       f2Percent = 0;
-    } else if (totalFreezerFraction <= 2.0) {
+    } else if (totalFreezerFraction <= 2.001) {
       f1Percent = 100;
       f2Percent = Math.round((totalFreezerFraction - 1.0) * 100);
     } else {
@@ -344,7 +344,7 @@ export function getWeekDays(
     }
 
     const isLaborOverloaded = totalMinutes > 480; // Exceeds 8h shift
-    const isFreezerOverloaded = totalFreezerFraction > 2.0; // Exceeds both freezers (>100% plant cold storage)
+    const isFreezerOverloaded = totalFreezerFraction > 2.001; // Exceeds both freezers (>100% plant cold storage)
     const isOverloaded = isLaborOverloaded || isFreezerOverloaded;
 
     let freezerStatusText = 'Freezers libres (0%)';

@@ -56,16 +56,21 @@ import {
   saveRecipeToFirestore,
   deleteRecipeFromFirestore,
   resetRecipesInFirestore,
+  saveAllRecipesToFirestore,
   subscribeToMasterIngredients,
   saveMasterIngredientToFirestore,
   deleteMasterIngredientFromFirestore,
   saveAllMasterIngredientsToFirestore,
   subscribeToIngredientCategories,
   saveIngredientCategoryToFirestore,
+  deleteIngredientCategoryFromFirestore,
   saveAllIngredientCategoriesToFirestore,
   subscribeToProductionCategories,
   saveProductionCategoryToFirestore,
-  saveAllProductionCategoriesToFirestore
+  deleteProductionCategoryFromFirestore,
+  saveAllProductionCategoriesToFirestore,
+  subscribeToInventoryState,
+  saveInventoryStateToFirestore
 } from './services/firestoreService';
 import { 
   FileSpreadsheet, 
@@ -92,6 +97,9 @@ const STORAGE_KEY_RECIPES = 'fabriplan_recipes_v3';
 const STORAGE_KEY_MASTER_INGREDIENTS = 'fabriplan_master_ingredients_v1';
 const STORAGE_KEY_INGREDIENT_CATEGORIES = 'fabriplan_ingredient_categories_v1';
 const STORAGE_KEY_PRODUCTION_CATEGORIES = 'fabriplan_production_categories_v1';
+const STORAGE_KEY_CHECKED = 'fabriplan_shopping_checked_items_v3';
+const STORAGE_KEY_FACTORY_STOCK = 'fabriplan_shopping_factory_stock_v3';
+const STORAGE_KEY_WEEKLY_STOCK = 'fabriplan_weekly_stock_items';
 
 export default function App() {
   // Editable Recipes state with LocalStorage and Firestore persistence
@@ -125,7 +133,20 @@ export default function App() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_INGREDIENT_CATEGORIES);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed: IngredientCategoryConfig[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const hasEmpaques = parsed.some((c) => c.id === 'empaques');
+          if (!hasEmpaques) {
+            parsed.push({
+              id: 'empaques',
+              name: 'Empaque, Bolsas y Descartables',
+              icon: '🛍️',
+              description: 'Bolsas, cajas, separadores, etiquetas, bandejas y descartables.',
+              order: parsed.length + 1,
+            });
+          }
+          return parsed.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        }
       }
     } catch (e) {
       console.error('Error loading ingredient categories from localStorage', e);
@@ -144,6 +165,31 @@ export default function App() {
       console.error('Error loading production categories from localStorage', e);
     }
     return DEFAULT_PRODUCTION_CATEGORIES;
+  });
+
+  // Checked / In-Stock items state (synchronized across Calendar and Shopping List)
+  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_CHECKED);
+      const legacy = localStorage.getItem(STORAGE_KEY_WEEKLY_STOCK);
+      const parsedSaved = saved ? JSON.parse(saved) : {};
+      const parsedLegacy = legacy ? JSON.parse(legacy) : {};
+      return { ...parsedLegacy, ...parsedSaved };
+    } catch (e) {
+      console.error('Error loading checked items from localStorage', e);
+      return {};
+    }
+  });
+
+  // Manual Factory Stock values (e.g. grams or units available in warehouse)
+  const [factoryStock, setFactoryStock] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_FACTORY_STOCK);
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.error('Error loading factory stock from localStorage', e);
+      return {};
+    }
   });
 
   // Current Main Navigation Tab (Default to calendar)
@@ -307,7 +353,22 @@ export default function App() {
     const unsubIngCats = subscribeToIngredientCategories(
       (cloudIngCats) => {
         if (cloudIngCats && cloudIngCats.length > 0) {
-          setIngredientCategories(cloudIngCats);
+          const hasEmpaques = cloudIngCats.some((c) => c.id === 'empaques');
+          if (!hasEmpaques) {
+            const merged = [
+              ...cloudIngCats,
+              {
+                id: 'empaques',
+                name: 'Empaque, Bolsas y Descartables',
+                icon: '🛍️',
+                description: 'Bolsas, cajas, separadores, etiquetas, bandejas y descartables.',
+                order: cloudIngCats.length + 1,
+              },
+            ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            setIngredientCategories(merged);
+          } else {
+            setIngredientCategories(cloudIngCats);
+          }
         }
         setIsCloudSynced(true);
       },
@@ -329,12 +390,31 @@ export default function App() {
       }
     );
 
+    // 7. Real-time listener for Inventory & Checked Stock state
+    const unsubInventory = subscribeToInventoryState(
+      (cloudInventory) => {
+        if (cloudInventory) {
+          if (cloudInventory.checkedItems && typeof cloudInventory.checkedItems === 'object') {
+            setCheckedItems(cloudInventory.checkedItems);
+          }
+          if (cloudInventory.factoryStock && typeof cloudInventory.factoryStock === 'object') {
+            setFactoryStock(cloudInventory.factoryStock);
+          }
+        }
+        setIsCloudSynced(true);
+      },
+      (err) => {
+        console.warn('Firestore inventory sync notice:', err);
+      }
+    );
+
     return () => {
       unsubBatches();
       unsubRecipes();
       unsubMaster();
       unsubIngCats();
       unsubProdCats();
+      unsubInventory();
     };
   }, []);
 
@@ -707,6 +787,51 @@ export default function App() {
     }
   };
 
+  const handleDeleteIngredientCategory = async (catId: string, reassignToCatId?: string) => {
+    // Reassign master ingredients if needed
+    if (reassignToCatId) {
+      setMasterIngredients((prev) => {
+        const next = prev.map((ing) => (ing.categoryId === catId ? { ...ing, categoryId: reassignToCatId } : ing));
+        try {
+          localStorage.setItem(STORAGE_KEY_MASTER_INGREDIENTS, JSON.stringify(next));
+          saveAllMasterIngredientsToFirestore(next).catch(console.error);
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
+      });
+    }
+
+    setIngredientCategories((prev) => {
+      const next = prev.filter((c) => c.id !== catId).map((c, idx) => ({ ...c, order: idx + 1 }));
+      try {
+        localStorage.setItem(STORAGE_KEY_INGREDIENT_CATEGORIES, JSON.stringify(next));
+        saveAllIngredientCategoriesToFirestore(next).catch(console.error);
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+
+    try {
+      await deleteIngredientCategoryFromFirestore(catId);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error deleting ingredient category from cloud:', e);
+    }
+  };
+
+  const handleSaveAllIngredientCategories = async (cats: IngredientCategoryConfig[]) => {
+    setIngredientCategories(cats);
+    try {
+      localStorage.setItem(STORAGE_KEY_INGREDIENT_CATEGORIES, JSON.stringify(cats));
+      await saveAllIngredientCategoriesToFirestore(cats);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error saving all ingredient categories to cloud:', e);
+    }
+  };
+
   const handleSaveProductionCategory = async (pCat: ProductionCategoryConfig) => {
     setProductionCategories((prev) => {
       const idx = prev.findIndex((c) => c.id === pCat.id);
@@ -725,6 +850,83 @@ export default function App() {
     }
   };
 
+  const handleDeleteProductionCategory = async (pCatId: string, reassignToProdCatId?: string) => {
+    // Reassign recipes if needed
+    if (reassignToProdCatId) {
+      setRecipes((prev) => {
+        const next = prev.map((r) => (r.category === pCatId ? { ...r, category: reassignToProdCatId } : r));
+        try {
+          localStorage.setItem(STORAGE_KEY_RECIPES, JSON.stringify(next));
+          saveAllRecipesToFirestore(next).catch(console.error);
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
+      });
+    }
+
+    setProductionCategories((prev) => {
+      const next = prev.filter((c) => c.id !== pCatId).map((c, idx) => ({ ...c, order: idx + 1 }));
+      try {
+        localStorage.setItem(STORAGE_KEY_PRODUCTION_CATEGORIES, JSON.stringify(next));
+        saveAllProductionCategoriesToFirestore(next).catch(console.error);
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+
+    try {
+      await deleteProductionCategoryFromFirestore(pCatId);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error deleting production category from cloud:', e);
+    }
+  };
+
+  const handleSaveAllProductionCategories = async (pCats: ProductionCategoryConfig[]) => {
+    setProductionCategories(pCats);
+    try {
+      localStorage.setItem(STORAGE_KEY_PRODUCTION_CATEGORIES, JSON.stringify(pCats));
+      await saveAllProductionCategoriesToFirestore(pCats);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error saving all production categories to cloud:', e);
+    }
+  };
+
+  const handleSaveAllRecipes = async (updatedRecipes: Recipe[]) => {
+    setRecipes(updatedRecipes);
+    try {
+      localStorage.setItem(STORAGE_KEY_RECIPES, JSON.stringify(updatedRecipes));
+      await saveAllRecipesToFirestore(updatedRecipes);
+      setIsCloudSynced(true);
+    } catch (e) {
+      console.error('Error saving all recipes to cloud:', e);
+    }
+  };
+
+  const handleUpdateRecipeCategory = async (recipeId: string, newCategoryId: string) => {
+    let updatedRecipe: Recipe | undefined;
+    setRecipes((prev) =>
+      prev.map((r) => {
+        if (r.id === recipeId) {
+          updatedRecipe = { ...r, category: newCategoryId };
+          return updatedRecipe;
+        }
+        return r;
+      })
+    );
+    if (updatedRecipe) {
+      try {
+        await saveRecipeToFirestore(updatedRecipe);
+        setIsCloudSynced(true);
+      } catch (e) {
+        console.error('Error updating recipe category in cloud:', e);
+      }
+    }
+  };
+
   const handleResetMasterCatalog = async () => {
     setMasterIngredients(INITIAL_MASTER_INGREDIENTS);
     setIngredientCategories(DEFAULT_INGREDIENT_CATEGORIES);
@@ -737,6 +939,185 @@ export default function App() {
     } catch (e) {
       console.error('Error resetting master catalog in cloud:', e);
     }
+  };
+
+  // =========================================================================
+  // SHARED INVENTORY & STOCK SYNCHRONIZATION HANDLERS (CALENDAR <-> SHOPPING LIST)
+  // =========================================================================
+  const handleToggleCheckItem = (nameOrKey: string, category?: string, isPackaging?: boolean) => {
+    setCheckedItems((prev) => {
+      const cleanName = nameOrKey.toLowerCase().replace(/^(ing_[a-z0-9_]+_|pkg_)/, '').trim();
+      const isCurrentlyChecked = Boolean(
+        prev[nameOrKey] ||
+        prev[cleanName] ||
+        (category ? prev[`ing_${category}_${cleanName}`] : false) ||
+        prev[`pkg_${cleanName}`]
+      );
+      const nextVal = !isCurrentlyChecked;
+
+      const next = { ...prev };
+      next[nameOrKey] = nextVal;
+      next[cleanName] = nextVal;
+      if (category) {
+        next[`ing_${category}_${cleanName}`] = nextVal;
+      }
+      if (isPackaging || nameOrKey.startsWith('pkg_')) {
+        next[`pkg_${cleanName}`] = nextVal;
+      }
+
+      try {
+        localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify(next));
+        localStorage.setItem(STORAGE_KEY_WEEKLY_STOCK, JSON.stringify(next));
+      } catch (e) {
+        console.error('Error saving checked items', e);
+      }
+      saveInventoryStateToFirestore({ checkedItems: next, factoryStock }).catch(console.error);
+      return next;
+    });
+  };
+
+  const handleMarkAllInStock = (itemKeys: string[]) => {
+    setCheckedItems((prev) => {
+      const next = { ...prev };
+      itemKeys.forEach((key) => {
+        const cleanName = key.toLowerCase().replace(/^(ing_[a-z0-9_]+_|pkg_)/, '').trim();
+        next[key] = true;
+        next[cleanName] = true;
+        if (key.startsWith('pkg_')) {
+          next[`pkg_${cleanName}`] = true;
+        }
+      });
+
+      try {
+        localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify(next));
+        localStorage.setItem(STORAGE_KEY_WEEKLY_STOCK, JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      saveInventoryStateToFirestore({ checkedItems: next, factoryStock }).catch(console.error);
+      return next;
+    });
+  };
+
+  const handleClearAllStock = () => {
+    setCheckedItems({});
+    try {
+      localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify({}));
+      localStorage.setItem(STORAGE_KEY_WEEKLY_STOCK, JSON.stringify({}));
+    } catch (e) {
+      console.error(e);
+    }
+    saveInventoryStateToFirestore({ checkedItems: {}, factoryStock }).catch(console.error);
+  };
+
+  const handleUpdateFactoryStock = (rowId: string, value: number) => {
+    setFactoryStock((prev) => {
+      const next = { ...prev, [rowId]: value };
+      try {
+        localStorage.setItem(STORAGE_KEY_FACTORY_STOCK, JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      saveInventoryStateToFirestore({ checkedItems, factoryStock: next }).catch(console.error);
+      return next;
+    });
+  };
+
+  const handleCoverStock = (
+    rowId: string,
+    bufferedAmount: number,
+    name?: string,
+    category?: string,
+    isPackaging?: boolean
+  ) => {
+    const cleanName = (name || rowId).toLowerCase().replace(/^(ing_[a-z0-9_]+_|pkg_)/, '').trim();
+    const nextFactoryStock = { ...factoryStock, [rowId]: bufferedAmount };
+    const nextChecked = {
+      ...checkedItems,
+      [rowId]: true,
+      [cleanName]: true,
+      ...(category ? { [`ing_${category}_${cleanName}`]: true } : {}),
+      ...(isPackaging || rowId.startsWith('pkg_') ? { [`pkg_${cleanName}`]: true } : {}),
+    };
+
+    setFactoryStock(nextFactoryStock);
+    setCheckedItems(nextChecked);
+
+    try {
+      localStorage.setItem(STORAGE_KEY_FACTORY_STOCK, JSON.stringify(nextFactoryStock));
+      localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify(nextChecked));
+      localStorage.setItem(STORAGE_KEY_WEEKLY_STOCK, JSON.stringify(nextChecked));
+    } catch (e) {
+      console.error(e);
+    }
+    saveInventoryStateToFirestore({ checkedItems: nextChecked, factoryStock: nextFactoryStock }).catch(console.error);
+  };
+
+  const handleClearItemStock = (
+    rowId: string,
+    name?: string,
+    category?: string,
+    isPackaging?: boolean
+  ) => {
+    const cleanName = (name || rowId).toLowerCase().replace(/^(ing_[a-z0-9_]+_|pkg_)/, '').trim();
+    const nextFactoryStock = { ...factoryStock };
+    delete nextFactoryStock[rowId];
+
+    const nextChecked = {
+      ...checkedItems,
+      [rowId]: false,
+      [cleanName]: false,
+      ...(category ? { [`ing_${category}_${cleanName}`]: false } : {}),
+      ...(isPackaging || rowId.startsWith('pkg_') ? { [`pkg_${cleanName}`]: false } : {}),
+    };
+
+    setFactoryStock(nextFactoryStock);
+    setCheckedItems(nextChecked);
+
+    try {
+      localStorage.setItem(STORAGE_KEY_FACTORY_STOCK, JSON.stringify(nextFactoryStock));
+      localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify(nextChecked));
+      localStorage.setItem(STORAGE_KEY_WEEKLY_STOCK, JSON.stringify(nextChecked));
+    } catch (e) {
+      console.error(e);
+    }
+    saveInventoryStateToFirestore({ checkedItems: nextChecked, factoryStock: nextFactoryStock }).catch(console.error);
+  };
+
+  const handleSelectAllVisible = (rowIds: string[], setAllInStock: boolean) => {
+    setCheckedItems((prev) => {
+      const next = { ...prev };
+      rowIds.forEach((id) => {
+        const cleanName = id.toLowerCase().replace(/^(ing_[a-z0-9_]+_|pkg_)/, '').trim();
+        next[id] = setAllInStock;
+        next[cleanName] = setAllInStock;
+        if (id.startsWith('pkg_')) {
+          next[`pkg_${cleanName}`] = setAllInStock;
+        }
+      });
+
+      try {
+        localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify(next));
+        localStorage.setItem(STORAGE_KEY_WEEKLY_STOCK, JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      saveInventoryStateToFirestore({ checkedItems: next, factoryStock }).catch(console.error);
+      return next;
+    });
+  };
+
+  const handleClearAllChecksAndStock = () => {
+    setCheckedItems({});
+    setFactoryStock({});
+    try {
+      localStorage.setItem(STORAGE_KEY_CHECKED, JSON.stringify({}));
+      localStorage.setItem(STORAGE_KEY_WEEKLY_STOCK, JSON.stringify({}));
+      localStorage.setItem(STORAGE_KEY_FACTORY_STOCK, JSON.stringify({}));
+    } catch (e) {
+      console.error(e);
+    }
+    saveInventoryStateToFirestore({ checkedItems: {}, factoryStock: {} }).catch(console.error);
   };
 
   return (
@@ -760,6 +1141,10 @@ export default function App() {
           <ProductionCalendar
             recipes={recipes}
             activeBatches={activeBatches}
+            checkedItems={checkedItems}
+            onToggleCheckItem={handleToggleCheckItem}
+            onMarkAllInStock={handleMarkAllInStock}
+            onClearAllStock={handleClearAllStock}
             onAddBatch={handleAddBatch}
             onUpdateBatchStatus={handleUpdateBatchStatus}
             onRemoveBatch={handleRemoveBatch}
@@ -961,6 +1346,16 @@ export default function App() {
             activeBatches={activeBatches}
             masterIngredients={masterIngredients}
             ingredientCategories={ingredientCategories}
+            checkedItems={checkedItems}
+            onToggleCheckItem={handleToggleCheckItem}
+            onMarkAllInStock={handleMarkAllInStock}
+            onClearAllStock={handleClearAllStock}
+            factoryStock={factoryStock}
+            onUpdateFactoryStock={handleUpdateFactoryStock}
+            onCoverStock={handleCoverStock}
+            onClearItemStock={handleClearItemStock}
+            onSelectAllVisible={handleSelectAllVisible}
+            onClearAllChecksAndStock={handleClearAllChecksAndStock}
             onUpdateBatchStatus={handleUpdateBatchStatus}
             onNavigateTab={(tab) => setCurrentTab(tab as MainTabType)}
           />
@@ -1013,7 +1408,14 @@ export default function App() {
           onDeleteIngredient={handleDeleteMasterIngredient}
           onSaveAllIngredients={handleSaveAllMasterIngredients}
           onSaveIngredientCategory={handleSaveIngredientCategory}
+          onDeleteIngredientCategory={handleDeleteIngredientCategory}
+          onSaveAllIngredientCategories={handleSaveAllIngredientCategories}
           onSaveProductionCategory={handleSaveProductionCategory}
+          onDeleteProductionCategory={handleDeleteProductionCategory}
+          onSaveAllProductionCategories={handleSaveAllProductionCategories}
+          onSaveRecipe={handleSaveRecipe}
+          onSaveAllRecipes={handleSaveAllRecipes}
+          onUpdateRecipeCategory={handleUpdateRecipeCategory}
           onResetToDefaults={handleResetMasterCatalog}
           onClose={() => setShowMasterCatalogModal(false)}
         />

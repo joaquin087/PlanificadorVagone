@@ -50,6 +50,13 @@ export const DEFAULT_INGREDIENT_CATEGORIES: IngredientCategoryConfig[] = [
     description: 'Jamón, salame, levadura, café soluble y otros no clasificados.',
     order: 7,
   },
+  {
+    id: 'empaques',
+    name: 'Empaque, Bolsas y Descartables',
+    icon: '🛍️',
+    description: 'Bolsas, cajas, separadores, etiquetas, bandejas y descartables.',
+    order: 8,
+  },
 ];
 
 export const DEFAULT_PRODUCTION_CATEGORIES: ProductionCategoryConfig[] = [

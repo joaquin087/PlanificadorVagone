@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { ChefHat, Lock, User, Eye, EyeOff, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { authenticateUser } from '../services/authService';
 
 interface LoginScreenProps {
-  onLoginSuccess: (username: string, remember: boolean) => void;
+  onLoginSuccess: (username: string, token: string, remember: boolean) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
@@ -13,7 +14,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -27,15 +28,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
     setIsLoading(true);
 
-    // Verify authorized credentials
-    setTimeout(() => {
-      if (cleanUser === 'vagone' && cleanPass === 'rafaela250') {
-        onLoginSuccess('vagone', rememberMe);
+    try {
+      const result = await authenticateUser(cleanUser, cleanPass);
+      if (result.success && result.token) {
+        onLoginSuccess(cleanUser, result.token, rememberMe);
       } else {
-        setErrorMsg('Usuario o contraseña incorrectos. Verifica los datos ingresados.');
-        setIsLoading(false);
+        setErrorMsg(result.error || 'Usuario o contraseña incorrectos.');
       }
-    }, 200);
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Ocurrió un error al procesar el ingreso.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

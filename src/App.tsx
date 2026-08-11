@@ -25,6 +25,9 @@ import {
   LoginScreen 
 } from './components/LoginScreen';
 import { 
+  verifySessionToken 
+} from './services/authService';
+import { 
   INITIAL_RECIPES 
 } from './data/recipesData';
 import { 
@@ -92,7 +95,8 @@ import {
   AlertTriangle,
   ShieldAlert,
   Loader2,
-  Check
+  Check,
+  ChefHat
 } from 'lucide-react';
 
 const STORAGE_KEY_BATCHES = 'fabriplan_active_batches_v3';
@@ -259,26 +263,47 @@ export default function App() {
     });
   };
 
-  // User authentication session state
-  const [currentUser, setCurrentUser] = useState<string | null>(() => {
-    try {
-      const local = localStorage.getItem(STORAGE_KEY_AUTH);
-      if (local) return local;
-      const session = sessionStorage.getItem(STORAGE_KEY_AUTH);
-      if (session) return session;
-    } catch (e) {
-      console.error('Error reading auth state', e);
-    }
-    return null;
-  });
+  // User authentication session state with cryptographic signature verification
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
 
-  const handleLoginSuccess = (username: string, remember: boolean) => {
+  // Validate stored session on mount
+  useEffect(() => {
+    let isMounted = true;
+    const checkSession = async () => {
+      try {
+        const storedToken = localStorage.getItem(STORAGE_KEY_AUTH) || sessionStorage.getItem(STORAGE_KEY_AUTH);
+        if (storedToken) {
+          const verifiedUser = await verifySessionToken(storedToken);
+          if (isMounted && verifiedUser) {
+            setCurrentUser(verifiedUser);
+          } else if (isMounted) {
+            // Invalid or expired token, clear storage
+            localStorage.removeItem(STORAGE_KEY_AUTH);
+            sessionStorage.removeItem(STORAGE_KEY_AUTH);
+          }
+        }
+      } catch (e) {
+        console.error('Error verifying auth session', e);
+      } finally {
+        if (isMounted) {
+          setIsAuthChecking(false);
+        }
+      }
+    };
+    checkSession();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleLoginSuccess = (username: string, token: string, remember: boolean) => {
     setCurrentUser(username);
     try {
       if (remember) {
-        localStorage.setItem(STORAGE_KEY_AUTH, username);
+        localStorage.setItem(STORAGE_KEY_AUTH, token);
       } else {
-        sessionStorage.setItem(STORAGE_KEY_AUTH, username);
+        sessionStorage.setItem(STORAGE_KEY_AUTH, token);
       }
     } catch (e) {
       console.error('Error saving auth session', e);
@@ -1230,6 +1255,17 @@ export default function App() {
     }
     saveInventoryStateToFirestore({ checkedItems: {}, factoryStock: {} }).catch(console.error);
   };
+
+  // While verifying stored credentials
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500 flex items-center justify-center shadow-xl shadow-amber-500/20 animate-pulse">
+          <ChefHat className="w-8 h-8 text-slate-950" />
+        </div>
+      </div>
+    );
+  }
 
   // If user is not authenticated, show protected login screen
   if (!currentUser) {

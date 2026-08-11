@@ -47,8 +47,10 @@ interface ProductionCalendarProps {
   activeBatches: ActiveBatch[];
   checkedItems?: Record<string, boolean>;
   dismissedPackagingDates?: Record<string, boolean>;
+  saturdayWeeks?: Record<string, boolean>;
   onDismissPackaging?: (dateStr: string) => void;
   onRestorePackaging?: (dateStr: string) => void;
+  onToggleSaturdayWeek?: (weekKey: string, enable?: boolean) => void;
   onToggleCheckItem?: (nameOrKey: string, category?: string, isPackaging?: boolean) => void;
   onMarkAllInStock?: (itemKeys: string[]) => void;
   onClearAllStock?: () => void;
@@ -64,8 +66,10 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   activeBatches,
   checkedItems,
   dismissedPackagingDates,
+  saturdayWeeks,
   onDismissPackaging,
   onRestorePackaging,
+  onToggleSaturdayWeek,
   onToggleCheckItem,
   onMarkAllInStock,
   onClearAllStock,
@@ -79,7 +83,7 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   const [currentMonday, setCurrentMonday] = useState<Date>(() => getMondayOfWeek(new Date()));
   
   // Weekly Saturday Toggle State: per-week dictionary (e.g. { "2026-08-03": true })
-  const [enabledSaturdayWeeks, setEnabledSaturdayWeeks] = useState<Record<string, boolean>>(() => {
+  const [localSaturdayWeeks, setLocalSaturdayWeeks] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('vagone_saturday_weeks');
       return saved ? JSON.parse(saved) : {};
@@ -87,6 +91,8 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
       return {};
     }
   });
+
+  const activeSaturdayWeeks = saturdayWeeks || localSaturdayWeeks;
 
   // Dismissed packaging state fallback & propagation
   const [localDismissedPackaging, setLocalDismissedPackaging] = useState<Record<string, boolean>>(() => {
@@ -189,29 +195,39 @@ export const ProductionCalendar: React.FC<ProductionCalendarProps> = ({
   }, [activeBatches, saturdayInfo.dateStr]);
 
   // Is Saturday visible for this current week?
-  const isSaturdayVisible = !!enabledSaturdayWeeks[currentWeekKey] || hasSaturdayBatches;
+  const isSaturdayVisible = !!activeSaturdayWeeks[currentWeekKey] || hasSaturdayBatches;
 
   // Handler to toggle Saturday for the current week
   const handleToggleSaturdayForWeek = () => {
     const nextVal = !isSaturdayVisible;
-    const next = { ...enabledSaturdayWeeks, [currentWeekKey]: nextVal };
-    setEnabledSaturdayWeeks(next);
-    try {
-      localStorage.setItem('vagone_saturday_weeks', JSON.stringify(next));
-    } catch (e) {
-      console.error(e);
+    if (onToggleSaturdayWeek) {
+      onToggleSaturdayWeek(currentWeekKey, nextVal);
     }
+    setLocalSaturdayWeeks((prev) => {
+      const next = { ...prev, [currentWeekKey]: nextVal };
+      try {
+        localStorage.setItem('vagone_saturday_weeks', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
   };
 
   // Handler to disable / hide Saturday for the current week
   const handleDisableSaturdayForWeek = () => {
-    const next = { ...enabledSaturdayWeeks, [currentWeekKey]: false };
-    setEnabledSaturdayWeeks(next);
-    try {
-      localStorage.setItem('vagone_saturday_weeks', JSON.stringify(next));
-    } catch (e) {
-      console.error(e);
+    if (onToggleSaturdayWeek) {
+      onToggleSaturdayWeek(currentWeekKey, false);
     }
+    setLocalSaturdayWeeks((prev) => {
+      const next = { ...prev, [currentWeekKey]: false };
+      try {
+        localStorage.setItem('vagone_saturday_weeks', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
   };
 
   // Compute weekly days (5 days if Saturday not visible, 6 days if enabled)

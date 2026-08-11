@@ -451,6 +451,8 @@ export async function resetRecipesInFirestore(): Promise<void> {
 export interface FirestoreInventoryState {
   checkedItems: Record<string, boolean>;
   factoryStock: Record<string, number>;
+  dismissedPackagingDates?: Record<string, boolean>;
+  saturdayWeeks?: Record<string, boolean>;
   updatedAt?: string;
 }
 

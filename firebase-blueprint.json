@@ -29,6 +29,51 @@
         "baseYieldUnits": { "type": "number", "description": "Rendimiento base al 100%" }
       },
       "required": ["id", "name", "category", "baseYieldUnits"]
+    },
+    "master_ingredients": {
+      "title": "Master Ingredients",
+      "description": "Catálogo maestro unificado de ingredientes y descartables",
+      "properties": {
+        "id": { "type": "string", "description": "ID del insumo maestro" },
+        "name": { "type": "string", "description": "Nombre del insumo" },
+        "categoryId": { "type": "string", "description": "Categoría asignada" },
+        "defaultUnit": { "type": "string", "description": "Unidad estándar (kg, g, L, u)" }
+      },
+      "required": ["id", "name", "categoryId", "defaultUnit"]
+    },
+    "ingredient_categories": {
+      "title": "Ingredient Categories",
+      "description": "Configuración de categorías de insumos de compras",
+      "properties": {
+        "id": { "type": "string", "description": "ID de la categoría" },
+        "name": { "type": "string", "description": "Nombre de la categoría" },
+        "icon": { "type": "string", "description": "Emoji o icono" },
+        "order": { "type": "number", "description": "Orden visual" }
+      },
+      "required": ["id", "name", "icon", "order"]
+    },
+    "production_categories": {
+      "title": "Production Categories",
+      "description": "Configuración de categorías de productos y recetas",
+      "properties": {
+        "id": { "type": "string", "description": "ID de la categoría" },
+        "name": { "type": "string", "description": "Nombre de la categoría" },
+        "icon": { "type": "string", "description": "Emoji o icono" },
+        "order": { "type": "number", "description": "Orden visual" }
+      },
+      "required": ["id", "name", "icon", "order"]
+    },
+    "inventory_state": {
+      "title": "Inventory State",
+      "description": "Estado de insumos tildados, stock manual de fábrica, empaques omitidos y semanas con sábado",
+      "properties": {
+        "checkedItems": { "type": "object", "description": "Insumos tildados/en stock" },
+        "factoryStock": { "type": "object", "description": "Stock numérico en planta" },
+        "dismissedPackagingDates": { "type": "object", "description": "Fechas con empaquetado omitido" },
+        "saturdayWeeks": { "type": "object", "description": "Semanas con sábado habilitado" },
+        "updatedAt": { "type": "string", "description": "Timestamp ISO" }
+      },
+      "required": ["checkedItems", "factoryStock"]
     }
   }
 }

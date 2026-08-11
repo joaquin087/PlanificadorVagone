@@ -8,7 +8,9 @@ import {
   Plus,
   Cloud,
   Database,
-  Layers
+  Layers,
+  LogOut,
+  User
 } from 'lucide-react';
 import { ActiveBatch } from '../types';
 
@@ -23,6 +25,8 @@ interface NavbarProps {
   onOpenQuickBatch: () => void;
   onOpenMasterCatalog?: () => void;
   isCloudSynced?: boolean;
+  currentUser?: string | null;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -34,6 +38,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenQuickBatch,
   onOpenMasterCatalog,
   isCloudSynced = true,
+  currentUser = 'vagone',
+  onLogout,
 }) => {
   return (
     <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md border-b border-slate-800">
@@ -149,58 +155,95 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* New Batch Quick Action */}
             <button
               onClick={onOpenQuickBatch}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow-md active:scale-95"
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Nuevo Lote</span>
             </button>
+
+            {/* User Session & Logout */}
+            {onLogout && (
+              <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
+                <div 
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300 font-medium"
+                  title={`Sesión iniciada como ${currentUser || 'vagone'}`}
+                >
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center text-[10px] font-black">
+                    V
+                  </div>
+                  <span className="font-bold text-slate-200">{currentUser || 'vagone'}</span>
+                </div>
+                <button
+                  onClick={onLogout}
+                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/60 hover:border-rose-700/80 border border-slate-700 text-slate-400 hover:text-rose-200 transition-colors cursor-pointer"
+                  title="Cerrar Sesión"
+                  aria-label="Cerrar Sesión"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Clean Navigation Tabs */}
-        <div className="flex space-x-1 py-1.5 border-t border-slate-800/80">
-          <button
-            onClick={() => setCurrentTab('calendar')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              currentTab === 'calendar'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <CalendarDays className="w-4 h-4" />
-            <span>Calendario de Planificación</span>
-            {activeBatches.length > 0 && (
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                currentTab === 'calendar' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-300'
-              }`}>
-                {activeBatches.length}
-              </span>
-            )}
-          </button>
+        <div className="flex items-center justify-between py-1.5 border-t border-slate-800/80">
+          <div className="flex space-x-1 overflow-x-auto">
+            <button
+              onClick={() => setCurrentTab('calendar')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                currentTab === 'calendar'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <CalendarDays className="w-4 h-4" />
+              <span>Calendario de Planificación</span>
+              {activeBatches.length > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  currentTab === 'calendar' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-300'
+                }`}>
+                  {activeBatches.length}
+                </span>
+              )}
+            </button>
 
-          <button
-            onClick={() => setCurrentTab('recipes')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              currentTab === 'recipes'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Recetas y Fichas Técnicas</span>
-          </button>
+            <button
+              onClick={() => setCurrentTab('recipes')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                currentTab === 'recipes'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Recetas y Fichas Técnicas</span>
+            </button>
 
-          <button
-            onClick={() => setCurrentTab('shopping')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              currentTab === 'shopping'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <ShoppingCart className="w-4 h-4" />
-            <span>Lista de Compras / Insumos</span>
-          </button>
+            <button
+              onClick={() => setCurrentTab('shopping')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                currentTab === 'shopping'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <ShoppingCart className="w-4 h-4" />
+              <span>Lista de Compras / Insumos</span>
+            </button>
+          </div>
+
+          {/* Mobile logout action */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="md:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-rose-300 text-xs font-medium border border-slate-700"
+              title="Cerrar Sesión"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Salir</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

@@ -22,6 +22,9 @@ import {
   MasterCatalogModal 
 } from './components/MasterCatalogModal';
 import { 
+  LoginScreen 
+} from './components/LoginScreen';
+import { 
   INITIAL_RECIPES 
 } from './data/recipesData';
 import { 
@@ -101,6 +104,8 @@ const STORAGE_KEY_CHECKED = 'fabriplan_shopping_checked_items_v3';
 const STORAGE_KEY_FACTORY_STOCK = 'fabriplan_shopping_factory_stock_v3';
 const STORAGE_KEY_WEEKLY_STOCK = 'fabriplan_weekly_stock_items';
 const STORAGE_KEY_DISMISSED_PACKAGING = 'vagone_dismissed_packaging_dates';
+const STORAGE_KEY_SATURDAY_WEEKS = 'vagone_saturday_weeks';
+const STORAGE_KEY_AUTH = 'vagone_auth_session_user';
 
 export default function App() {
   // Editable Recipes state with LocalStorage and Firestore persistence
@@ -211,6 +216,7 @@ export default function App() {
       } catch (e) {
         console.error('Error saving dismissed packaging dates', e);
       }
+      saveInventoryStateToFirestore({ dismissedPackagingDates: next }).catch(console.error);
       return next;
     });
   };
@@ -224,8 +230,69 @@ export default function App() {
       } catch (e) {
         console.error('Error saving dismissed packaging dates', e);
       }
+      saveInventoryStateToFirestore({ dismissedPackagingDates: next }).catch(console.error);
       return next;
     });
+  };
+
+  // Saturday enabled per week state (e.g. { "2026-08-10": true })
+  const [saturdayWeeks, setSaturdayWeeks] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_SATURDAY_WEEKS);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleToggleSaturdayWeek = (weekKey: string, enable?: boolean) => {
+    setSaturdayWeeks((prev) => {
+      const nextVal = enable !== undefined ? enable : !prev[weekKey];
+      const next = { ...prev, [weekKey]: nextVal };
+      try {
+        localStorage.setItem(STORAGE_KEY_SATURDAY_WEEKS, JSON.stringify(next));
+      } catch (e) {
+        console.error('Error saving saturday weeks', e);
+      }
+      saveInventoryStateToFirestore({ saturdayWeeks: next }).catch(console.error);
+      return next;
+    });
+  };
+
+  // User authentication session state
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    try {
+      const local = localStorage.getItem(STORAGE_KEY_AUTH);
+      if (local) return local;
+      const session = sessionStorage.getItem(STORAGE_KEY_AUTH);
+      if (session) return session;
+    } catch (e) {
+      console.error('Error reading auth state', e);
+    }
+    return null;
+  });
+
+  const handleLoginSuccess = (username: string, remember: boolean) => {
+    setCurrentUser(username);
+    try {
+      if (remember) {
+        localStorage.setItem(STORAGE_KEY_AUTH, username);
+      } else {
+        sessionStorage.setItem(STORAGE_KEY_AUTH, username);
+      }
+    } catch (e) {
+      console.error('Error saving auth session', e);
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem(STORAGE_KEY_AUTH);
+      sessionStorage.removeItem(STORAGE_KEY_AUTH);
+    } catch (e) {
+      console.error('Error clearing auth session', e);
+    }
   };
 
   // Current Main Navigation Tab (Default to calendar)
@@ -341,8 +408,10 @@ export default function App() {
     ];
   });
 
-  // Real-time Firestore synchronization across all devices
+  // Real-time Firestore synchronization across all devices (only connects when logged in)
   useEffect(() => {
+    if (!currentUser) return;
+
     // 1. Initialize Firestore collections if empty
     initializeFirestoreDefaults(activeBatches, recipes, masterIngredients, ingredientCategories, productionCategories);
 
@@ -436,6 +505,12 @@ export default function App() {
           if (cloudInventory.factoryStock && typeof cloudInventory.factoryStock === 'object') {
             setFactoryStock(cloudInventory.factoryStock);
           }
+          if (cloudInventory.dismissedPackagingDates && typeof cloudInventory.dismissedPackagingDates === 'object') {
+            setDismissedPackagingDates(cloudInventory.dismissedPackagingDates);
+          }
+          if (cloudInventory.saturdayWeeks && typeof cloudInventory.saturdayWeeks === 'object') {
+            setSaturdayWeeks(cloudInventory.saturdayWeeks);
+          }
         }
         setIsCloudSynced(true);
       },
@@ -452,7 +527,7 @@ export default function App() {
       unsubProdCats();
       unsubInventory();
     };
-  }, []);
+  }, [currentUser]);
 
   // Save batches to localStorage as instant cache
   useEffect(() => {
@@ -1156,6 +1231,11 @@ export default function App() {
     saveInventoryStateToFirestore({ checkedItems: {}, factoryStock: {} }).catch(console.error);
   };
 
+  // If user is not authenticated, show protected login screen
+  if (!currentUser) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 font-sans antialiased flex flex-col selection:bg-amber-500 selection:text-slate-950">
       {/* Top Industrial Navbar */}
@@ -1168,6 +1248,8 @@ export default function App() {
         onOpenQuickBatch={() => setPlanningRecipe(recipes[0])}
         onOpenMasterCatalog={() => setShowMasterCatalogModal(true)}
         isCloudSynced={isCloudSynced}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
 
       {/* Main Container (98% width for spacious planning) */}
@@ -1179,8 +1261,10 @@ export default function App() {
             activeBatches={activeBatches}
             checkedItems={checkedItems}
             dismissedPackagingDates={dismissedPackagingDates}
+            saturdayWeeks={saturdayWeeks}
             onDismissPackaging={handleDismissPackaging}
             onRestorePackaging={handleRestorePackaging}
+            onToggleSaturdayWeek={handleToggleSaturdayWeek}
             onToggleCheckItem={handleToggleCheckItem}
             onMarkAllInStock={handleMarkAllInStock}
             onClearAllStock={handleClearAllStock}

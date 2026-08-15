@@ -14,12 +14,12 @@ import { INITIAL_RECIPES } from '../data/recipesData';
 import { INITIAL_MASTER_INGREDIENTS } from '../data/masterIngredientsData';
 import { DEFAULT_INGREDIENT_CATEGORIES, DEFAULT_PRODUCTION_CATEGORIES } from '../data/categoriesData';
 
-const BATCHES_COLLECTION = 'batches';
-const RECIPES_COLLECTION = 'recipes';
-const MASTER_INGREDIENTS_COLLECTION = 'master_ingredients';
-const INGREDIENT_CATEGORIES_COLLECTION = 'ingredient_categories';
-const PRODUCTION_CATEGORIES_COLLECTION = 'production_categories';
-const INVENTORY_STATE_COLLECTION = 'inventory_state';
+const BATCHES_COLLECTION = 'planificador_batches';
+const RECIPES_COLLECTION = 'planificador_recipes';
+const MASTER_INGREDIENTS_COLLECTION = 'planificador_master_ingredients';
+const INGREDIENT_CATEGORIES_COLLECTION = 'planificador_ingredient_categories';
+const PRODUCTION_CATEGORIES_COLLECTION = 'planificador_production_categories';
+const INVENTORY_STATE_COLLECTION = 'planificador_inventory_state';
 const INVENTORY_STATE_DOC = 'stock_and_checked';
 
 // Helper to remove undefined fields which Firestore rejects

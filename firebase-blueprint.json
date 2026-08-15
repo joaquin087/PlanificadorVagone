@@ -1,7 +1,7 @@
 {
   "entities": {
-    "batches": {
-      "title": "Batches",
+    "planificador_batches": {
+      "title": "Planificador Batches",
       "description": "Lotes de producción planificados y ejecutados en la fábrica",
       "properties": {
         "id": { "type": "string", "description": "ID único del lote" },
@@ -19,8 +19,8 @@
       },
       "required": ["id", "recipeId", "recipeName", "targetUnits", "scheduledDate", "status"]
     },
-    "recipes": {
-      "title": "Recipes",
+    "planificador_recipes": {
+      "title": "Planificador Recipes",
       "description": "Fichas técnicas y recetas maestras editables de fábrica",
       "properties": {
         "id": { "type": "string", "description": "ID de la receta" },
@@ -30,8 +30,8 @@
       },
       "required": ["id", "name", "category", "baseYieldUnits"]
     },
-    "master_ingredients": {
-      "title": "Master Ingredients",
+    "planificador_master_ingredients": {
+      "title": "Planificador Master Ingredients",
       "description": "Catálogo maestro unificado de ingredientes y descartables",
       "properties": {
         "id": { "type": "string", "description": "ID del insumo maestro" },
@@ -41,8 +41,8 @@
       },
       "required": ["id", "name", "categoryId", "defaultUnit"]
     },
-    "ingredient_categories": {
-      "title": "Ingredient Categories",
+    "planificador_ingredient_categories": {
+      "title": "Planificador Ingredient Categories",
       "description": "Configuración de categorías de insumos de compras",
       "properties": {
         "id": { "type": "string", "description": "ID de la categoría" },
@@ -52,8 +52,8 @@
       },
       "required": ["id", "name", "icon", "order"]
     },
-    "production_categories": {
-      "title": "Production Categories",
+    "planificador_production_categories": {
+      "title": "Planificador Production Categories",
       "description": "Configuración de categorías de productos y recetas",
       "properties": {
         "id": { "type": "string", "description": "ID de la categoría" },
@@ -63,8 +63,8 @@
       },
       "required": ["id", "name", "icon", "order"]
     },
-    "inventory_state": {
-      "title": "Inventory State",
+    "planificador_inventory_state": {
+      "title": "Planificador Inventory State",
       "description": "Estado de insumos tildados, stock manual de fábrica, empaques omitidos y semanas con sábado",
       "properties": {
         "checkedItems": { "type": "object", "description": "Insumos tildados/en stock" },

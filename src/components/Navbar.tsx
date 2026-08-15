@@ -86,6 +86,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ? 'bg-amber-950/50 border-amber-500 text-amber-300'
                   : 'bg-slate-800/80 border-slate-700 text-slate-300'
               }`}
+              title={`Ocupación de Freezer 1 para la producción de hoy: ${f1Percent}%`}
             >
               <Snowflake className={`w-3.5 h-3.5 ${f1Percent >= 90 ? 'text-amber-400' : 'text-cyan-400'}`} />
               <div>
@@ -113,6 +114,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ? 'bg-amber-950/50 border-amber-500 text-amber-300'
                   : 'bg-slate-800/80 border-slate-700 text-slate-300'
               }`}
+              title={`Ocupación de Freezer 2 para la producción de hoy: ${f2Percent}%`}
             >
               <Snowflake className={`w-3.5 h-3.5 ${f2Percent >= 90 ? 'text-amber-400' : 'text-blue-400'}`} />
               <div>

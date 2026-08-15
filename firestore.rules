@@ -2,13 +2,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Permitir lectura y escritura de lotes y recetas para sincronización multi-dispositivo en la planta
-    match /batches/{batchId} {
+    match /planificador_batches/{batchId} {
       allow read, write: if true;
     }
-    match /recipes/{recipeId} {
+    match /planificador_recipes/{recipeId} {
       allow read, write: if true;
     }
-    match /app_state/{docId} {
+    match /planificador_master_ingredients/{itemId} {
+      allow read, write: if true;
+    }
+    match /planificador_ingredient_categories/{catId} {
+      allow read, write: if true;
+    }
+    match /planificador_production_categories/{pCatId} {
+      allow read, write: if true;
+    }
+    match /planificador_inventory_state/{docId} {
       allow read, write: if true;
     }
     match /{document=**} {

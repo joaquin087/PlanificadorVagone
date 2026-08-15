@@ -1,4 +1,4 @@
-export type ProductCategory = 
+export type PlanificadorProductCategory = 
   | 'tequenos' 
   | 'chipas' 
   | 'pastas' 
@@ -10,7 +10,9 @@ export type ProductCategory =
   | 'otros' 
   | string;
 
-export interface IngredientCategoryConfig {
+export type ProductCategory = PlanificadorProductCategory;
+
+export interface PlanificadorIngredientCategoryConfig {
   id: string; // e.g. 'lacteos', 'harinas_feculas', 'frescos_verduras', 'huevos', 'grasas_liquidos', 'especias_condimentos', 'otros'
   name: string; // e.g. 'Lácteos, Quesos y Rellenos'
   icon: string; // e.g. '🧀'
@@ -18,7 +20,9 @@ export interface IngredientCategoryConfig {
   order: number;
 }
 
-export interface ProductionCategoryConfig {
+export type IngredientCategoryConfig = PlanificadorIngredientCategoryConfig;
+
+export interface PlanificadorProductionCategoryConfig {
   id: string; // e.g. 'pastas', 'tequenos', 'chipas', 'canelones', 'postres', 'pizzas', 'empanadas', 'panaderia', 'otros'
   name: string; // e.g. 'Pasta rellena', 'Tequeños & Snacks', etc.
   icon: string; // e.g. '🥟'
@@ -28,7 +32,9 @@ export interface ProductionCategoryConfig {
   order: number;
 }
 
-export interface MasterIngredient {
+export type ProductionCategoryConfig = PlanificadorProductionCategoryConfig;
+
+export interface PlanificadorMasterIngredient {
   id: string;
   name: string;
   categoryId: string;
@@ -36,7 +42,9 @@ export interface MasterIngredient {
   notes?: string;
 }
 
-export interface Ingredient {
+export type MasterIngredient = PlanificadorMasterIngredient;
+
+export interface PlanificadorIngredient {
   id: string;
   name: string;
   amountGrams: number; // Base quantity in grams
@@ -53,7 +61,9 @@ export interface Ingredient {
   notes?: string;
 }
 
-export interface PackagingItem {
+export type Ingredient = PlanificadorIngredient;
+
+export interface PlanificadorPackagingItem {
   id: string;
   name: string;
   type: 'bolsa' | 'etiqueta' | 'folex' | 'bandeja' | 'caja' | 'pote';
@@ -62,7 +72,9 @@ export interface PackagingItem {
   dimensions?: string;
 }
 
-export interface PresentationOption {
+export type PackagingItem = PlanificadorPackagingItem;
+
+export interface PlanificadorPresentationOption {
   id: string;
   label: string;
   unitsPerPack: number;
@@ -70,7 +82,9 @@ export interface PresentationOption {
   packagingDescription: string;
 }
 
-export interface FreezerOccupancyRule {
+export type PresentationOption = PlanificadorPresentationOption;
+
+export interface PlanificadorFreezerOccupancyRule {
   f1Percent: number; // e.g. 100 for 100%
   f1TraysText: string; // e.g. "10/10" o "11/11" o "5/5"
   f1MaxTrays: number;
@@ -84,21 +98,23 @@ export interface FreezerOccupancyRule {
   criticalLimitWarning?: string;
 }
 
-export interface Recipe {
+export type FreezerOccupancyRule = PlanificadorFreezerOccupancyRule;
+
+export interface PlanificadorRecipe {
   id: string;
   name: string;
-  category: ProductCategory;
+  category: PlanificadorProductCategory;
   subtitle: string;
   baseYieldUnits: number; // e.g. 1100, 3000, 2112, 112 (bandejas), 400
   yieldUnitName: string; // 'unidades', 'bandejas', 'porciones'
-  presentationOptions: PresentationOption[];
-  ingredients: Ingredient[];
-  packaging: PackagingItem[];
+  presentationOptions: PlanificadorPresentationOption[];
+  ingredients: PlanificadorIngredient[];
+  packaging: PlanificadorPackagingItem[];
   baseHours: number; // e.g. 7.5
   baseMinutes?: number; // e.g. 450 (base production duration in minutes)
   prepMinutes?: number; // optional fixed setup/prep time in minutes (e.g. 30)
   timeNotes?: string;
-  freezerRule: FreezerOccupancyRule;
+  freezerRule: PlanificadorFreezerOccupancyRule;
   maxRecommendedBatch?: number;
   operationalNotes: string[];
   preparationSteps: string[];
@@ -109,7 +125,9 @@ export interface Recipe {
   nextDayPackagingMinutes?: number; // Minutes required for next-day packaging (default ~35 min)
 }
 
-export interface ActiveBatch {
+export type Recipe = PlanificadorRecipe;
+
+export interface PlanificadorActiveBatch {
   id: string;
   recipeId: string;
   recipeName: string;
@@ -129,7 +147,9 @@ export interface ActiveBatch {
   calculatedF2Percent: number;
 }
 
-export interface ConsolidatedIngredient {
+export type ActiveBatch = PlanificadorActiveBatch;
+
+export interface PlanificadorConsolidatedIngredient {
   name: string;
   category: string;
   totalGrams: number;
@@ -143,12 +163,14 @@ export interface ConsolidatedIngredient {
     formattedDate?: string;
     batchId?: string;
     isBatchCompleted?: boolean;
-    batchStatus?: ActiveBatch['status'];
+    batchStatus?: PlanificadorActiveBatch['status'];
   }[];
   isPurchased?: boolean;
 }
 
-export interface ConsolidatedPackaging {
+export type ConsolidatedIngredient = PlanificadorConsolidatedIngredient;
+
+export interface PlanificadorConsolidatedPackaging {
   name: string;
   type: string;
   totalCount: number;
@@ -159,7 +181,9 @@ export interface ConsolidatedPackaging {
     formattedDate?: string;
     batchId?: string;
     isBatchCompleted?: boolean;
-    batchStatus?: ActiveBatch['status'];
+    batchStatus?: PlanificadorActiveBatch['status'];
   }[];
   isPurchased?: boolean;
 }
+
+export type ConsolidatedPackaging = PlanificadorConsolidatedPackaging;
